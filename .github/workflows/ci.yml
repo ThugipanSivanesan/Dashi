@@ -1,0 +1,68 @@
+name: CI
+
+# PR-gated + a weekly re-scan of main for newly-disclosed issues. No `push` trigger, so merging a
+# PR to main does not re-run CI and burn Actions credits — the PR run is the gate.
+on:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: macos-latest # SwiftUI/AppKit require a macOS runner (billed ~10x — keep this job lean)
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: swift-format lint
+        run: swift format lint --strict --recursive Sources Tests Package.swift
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --enable-code-coverage
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks # pinned CLI binary, not the action (no GitHub API → works on forks)
+        run: |
+          V=8.30.1
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz" -o gl.tgz
+          tar -xzf gl.tgz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+      - name: Scan git history
+        run: gitleaks git . --redact --no-banner --exit-code 1
+
+  osv-scan:
+    name: Dependency vuln scan (osv-scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install osv-scanner
+        run: |
+          V=2.4.0
+          curl -sSfL "https://github.com/google/osv-scanner/releases/download/v${V}/osv-scanner_linux_amd64" -o osv-scanner
+          sudo install osv-scanner /usr/local/bin/osv-scanner
+      - name: Scan source
+        run: |
+          # Swift's Package.resolved is not yet an osv-scanner-supported lockfile, so today this
+          # scans any other supported manifests and is a no-op when none exist (exit 128). It fails
+          # the build on real vulnerabilities (exit 1) once scannable dependencies are added.
+          set +e
+          osv-scanner scan source --recursive .
+          code=$?
+          if [ "$code" -eq 128 ]; then
+            echo "osv-scanner: no supported manifests found — nothing to scan yet."
+            exit 0
+          fi
+          exit $code
