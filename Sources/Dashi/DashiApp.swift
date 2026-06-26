@@ -2,22 +2,16 @@ import AppKit
 import DashiCore
 import SwiftUI
 
-/// Entry point for the Dashi menu bar app. The real usage popup is added in the usage-popup
-/// feature slice; this baseline shows a minimal placeholder so the app builds and runs.
+/// Entry point for the Dashi menu bar app. Builds the usage provider from configuration (offline
+/// by default) and renders today's usage in the popup.
 @main
 struct DashiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    private let provider: any UsageProvider = makeUsageProvider(Settings.fromEnvironment())
 
     var body: some Scene {
         MenuBarExtra("Dashi", systemImage: "chart.bar") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Dashi").font(.headline)
-                Text("AI token usage").foregroundStyle(.secondary)
-                Divider()
-                Button("Quit Dashi") { NSApplication.shared.terminate(nil) }
-            }
-            .padding(12)
-            .frame(width: 220)
+            UsageView(provider: provider)
         }
         .menuBarExtraStyle(.window)
     }
