@@ -69,6 +69,16 @@ Keychain and read only at the point of use.
 Every change ships as a small, tested, green slice via a feature branch and PR (see
 `Scripts/check.sh` and the CI workflow). `main` is always releasable.
 
+## Acknowledgements
+
+Dashi's reading of the local Claude Code OAuth credentials — the
+`Claude Code-credentials` Keychain item, the `~/.claude/.credentials.json`
+fallback, the `claudeAiOauth` token envelope, and the `oauth-2025-04-20` beta
+header — was informed by
+[griffinmartin/opencode-claude-auth](https://github.com/griffinmartin/opencode-claude-auth)
+(MIT), an OpenCode plugin that authenticates with existing Claude Code
+credentials. Dashi only _reads_ usage; it does not refresh tokens.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
