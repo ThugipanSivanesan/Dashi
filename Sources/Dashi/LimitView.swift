@@ -12,6 +12,8 @@ struct LimitMenuBarLabel: View {
             Image(systemName: "gauge.with.dots.needle.50percent")
         case .loaded(let limits):
             Text("\(Int(limits.fiveHour.utilization.rounded()))%")
+        case .needsConsent:
+            Image(systemName: "exclamationmark.shield")
         case .notSignedIn, .needsReauth:
             Image(systemName: "exclamationmark.triangle.fill")
         case .failed:
@@ -58,6 +60,8 @@ struct LimitView: View {
                 .padding(.vertical, 8)
         case .loaded(let limits):
             limitsView(limits)
+        case .needsConsent:
+            consentPrompt
         case .notSignedIn:
             message(
                 "Log in to Claude Code to see your usage.",
@@ -99,6 +103,32 @@ struct LimitView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var consentPrompt: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Experimental feature", systemImage: "exclamationmark.shield")
+                .font(.callout)
+                .foregroundStyle(.orange)
+            Text(
+                "Showing your Claude usage reuses Claude Code's login token to call an unofficial "
+                    + "endpoint. This is a personal-use feature that may violate Anthropic's Terms "
+                    + "of Service and could stop working without notice."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if let url = URL(
+                string: "https://github.com/ThugipanSivanesan/Dashi/blob/main/SECURITY.md")
+            {
+                Link("Learn more", destination: url).font(.caption)
+            }
+            Button("Enable Claude usage") {
+                Task { await viewModel.grantConsent() }
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 2)
         }
     }
 
