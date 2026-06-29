@@ -5,6 +5,7 @@ import Observation
 public enum LimitState: Equatable, Sendable {
     case loading
     case loaded(SubscriptionLimits)
+    case needsConsent
     case notSignedIn
     case needsReauth
     case failed(String)
@@ -14,15 +15,35 @@ public enum LimitState: Equatable, Sendable {
 /// into renderable states.
 @Observable
 public final class LimitViewModel {
-    public private(set) var state: LimitState = .loading
+    public private(set) var state: LimitState
     @ObservationIgnored private let provider: any LimitProvider
+    @ObservationIgnored private let consent: any ConsentStore
 
-    public init(provider: any LimitProvider) {
+    public init(
+        provider: any LimitProvider,
+        consent: any ConsentStore = UserDefaultsConsentStore()
+    ) {
         self.provider = provider
+        self.consent = consent
+        // Start gated until the user accepts the experimental/ToS terms — avoids a flash of the
+        // gauge before consent and ensures the token is never read without it.
+        self.state = consent.hasConsented() ? .loading : .needsConsent
+    }
+
+    /// Records consent (the user accepted the experimental/ToS terms) and loads immediately.
+    @MainActor
+    public func grantConsent() async {
+        consent.setConsented(true)
+        await load()
     }
 
     @MainActor
     public func load() async {
+        // Fail closed: never touch the Claude Code token until the user has consented.
+        guard consent.hasConsented() else {
+            state = .needsConsent
+            return
+        }
         do {
             let limits = try await provider.currentLimits()
             state = .loaded(limits)
