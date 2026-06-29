@@ -1,9 +1,69 @@
 # Releasing Dashi
 
-Dashi handles access to your AI accounts, so distributed builds must be **code-signed and
-notarized**. An unsigned app triggers Gatekeeper warnings, *and* weakens the Keychain guarantees
-(repeated access prompts, no stable app identity), which undermines the protections described in
-[SECURITY.md](SECURITY.md). This document is the checklist for cutting a trusted release.
+Dashi handles access to your AI accounts, so how a build is signed matters. There are two tracks:
+
+- **Option A — Unsigned community build (no Apple Developer account).** Free and immediate: build,
+  ad-hoc sign, package a `.dmg`, publish on GitHub. Users approve it once through Gatekeeper. Good
+  for getting Dashi into people's hands today. See **[Option A](#option-a--unsigned-community-build-no-apple-developer-account)**.
+- **Option B — Signed + notarized (Developer ID).** Requires a paid Apple Developer membership but
+  removes Gatekeeper friction and gives the strongest Keychain guarantees (stable app identity, no
+  repeated access prompts). This is the recommended long-term route — see
+  **[Option B](#option-b--signed--notarized-developer-id)** and the [Prerequisites](#prerequisites)
+  below.
+
+An unsigned app triggers Gatekeeper warnings and weakens the Keychain guarantees described in
+[SECURITY.md](SECURITY.md); ad-hoc signing (Option A) recovers a stable identity but is still **not**
+notarized.
+
+---
+
+## Option A — Unsigned community build (no Apple Developer account)
+
+One command builds the app (unsigned), ad-hoc signs it, and packages a checksummed `.dmg`:
+
+```sh
+brew install xcodegen          # one-time
+bash Scripts/make-dmg.sh       # → dist/Dashi-<version>.dmg (+ .sha256)
+```
+
+`Scripts/make-dmg.sh` runs `Scripts/build-app.sh` if needed, ad-hoc signs `Dashi.app`
+(`codesign --sign -` — free, no account; set `DASHI_ADHOC=0` to skip), then produces a compressed
+`.dmg` with an `/Applications` drag-to-install symlink and a SHA-256 sidecar.
+
+### What your users will see
+
+The build is **not notarized**, so macOS quarantines it on download and Gatekeeper blocks the first
+launch. To run it, users either:
+
+- open **System Settings → Privacy & Security**, scroll down, and click **"Open Anyway"** (on
+  macOS 15 Sequoia the old Control-click → Open shortcut no longer bypasses Gatekeeper), or
+- clear the quarantine flag manually: `xattr -dr com.apple.quarantine /Applications/Dashi.app`.
+
+Document this in the release notes so people aren't surprised.
+
+### Publish on GitHub
+
+```sh
+gh release create v<version> \
+  dist/Dashi-<version>.dmg dist/Dashi-<version>.dmg.sha256 \
+  --title "Dashi v<version>" \
+  --notes "Unsigned community build (not notarized). First launch: System Settings → Privacy & Security → Open Anyway. Verify the download against the .sha256."
+```
+
+Tag and publish under your own identity (no AI attribution), per the repo convention.
+
+### Trust
+
+This is an unsigned + ad-hoc build, so trust comes from transparency, not Apple: publish the
+**SHA-256** alongside the `.dmg` (the script writes it) and point users at building from source —
+Dashi is open, so anyone can reproduce the bundle and compare. For a binary that touches credentials,
+graduating to Option B is the real fix once you have a membership.
+
+---
+
+## Option B — Signed + notarized (Developer ID)
+
+The recommended trusted release. This document's checklist below covers it end-to-end.
 
 ## Prerequisites
 
