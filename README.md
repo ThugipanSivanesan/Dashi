@@ -59,6 +59,9 @@ swift run Dashi
 
 # build the distributable Dashi.app bundle (needs XcodeGen: brew install xcodegen)
 bash Scripts/build-app.sh
+
+# package an unsigned (ad-hoc signed) .dmg for a GitHub release → dist/Dashi-<version>.dmg
+bash Scripts/make-dmg.sh
 ```
 
 The Xcode app target is generated from `project.yml` (XcodeGen); the `.xcodeproj` is gitignored. See
