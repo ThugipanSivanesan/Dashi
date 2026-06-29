@@ -108,6 +108,7 @@ swift run Dashi
 bash Scripts/build-app.sh
 
 # package an unsigned (ad-hoc signed) .dmg for a GitHub release → dist/Dashi-<version>.dmg
+# (needs create-dmg: brew install create-dmg)
 bash Scripts/make-dmg.sh
 ```
 

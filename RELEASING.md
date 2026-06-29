@@ -22,13 +22,15 @@ notarized.
 One command builds the app (unsigned), ad-hoc signs it, and packages a checksummed `.dmg`:
 
 ```sh
-brew install xcodegen          # one-time
-bash Scripts/make-dmg.sh       # → dist/Dashi-<version>.dmg (+ .sha256)
+brew install xcodegen create-dmg   # one-time
+bash Scripts/make-dmg.sh           # → dist/Dashi-<version>.dmg (+ .sha256)
 ```
 
 `Scripts/make-dmg.sh` runs `Scripts/build-app.sh` if needed, ad-hoc signs `Dashi.app`
-(`codesign --sign -` — free, no account; set `DASHI_ADHOC=0` to skip), then produces a compressed
-`.dmg` with an `/Applications` drag-to-install symlink and a SHA-256 sidecar.
+(`codesign --sign -` — free, no account; set `DASHI_ADHOC=0` to skip), then uses
+[`create-dmg`](https://github.com/create-dmg/create-dmg) to produce a compressed `.dmg` whose
+mounted window shows the familiar drag-**Dashi**-onto-**Applications** layout, plus a SHA-256
+sidecar.
 
 ### What your users will see
 
