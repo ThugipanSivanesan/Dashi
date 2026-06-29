@@ -6,6 +6,8 @@
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 DerivedData/
+# Release artifacts produced by Scripts/make-dmg.sh
+dist/
 
 # Code-coverage profiles (from `swift test --enable-code-coverage`)
 *.profraw
