@@ -2,16 +2,25 @@ import AppKit
 import DashiCore
 import SwiftUI
 
-/// Entry point for the Dashi menu bar app. Builds the usage provider from configuration (offline
-/// by default) and renders today's usage in the popup.
+/// Entry point for the Dashi menu bar app. Shows the Claude subscription's 5-hour limit at a glance
+/// in the menu bar and refreshes it on a timer.
 @main
 struct DashiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    private let provider: any UsageProvider = makeUsageProvider(Settings.fromEnvironment())
+    @State private var viewModel = LimitViewModel(provider: ClaudeSubscriptionProvider())
+    private let pollInterval = Settings.fromEnvironment().pollInterval
 
     var body: some Scene {
-        MenuBarExtra("Dashi", systemImage: "chart.bar") {
-            UsageView(provider: provider)
+        MenuBarExtra {
+            LimitView(viewModel: viewModel)
+        } label: {
+            LimitMenuBarLabel(viewModel: viewModel)
+                .task {
+                    while !Task.isCancelled {
+                        await viewModel.load()
+                        try? await Task.sleep(for: .seconds(pollInterval))
+                    }
+                }
         }
         .menuBarExtraStyle(.window)
     }
