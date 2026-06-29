@@ -1,7 +1,8 @@
 # Swift / SwiftPM
 .build/
 .swiftpm/
-*.xcodeproj/xcuserdata/
+# The Xcode project is generated from project.yml by XcodeGen — never commit it
+*.xcodeproj/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 DerivedData/

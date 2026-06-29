@@ -16,17 +16,20 @@ notarized**. An unsigned app triggers Gatekeeper warnings, *and* weakens the Key
     --apple-id "you@example.com" --team-id "TEAMID" --password "app-specific-password"
   ```
 
-## 1. Build a release binary
+## 1. Build the app bundle
+
+A SwiftPM executable is a bare binary, not a `.app`. The distributable bundle is produced by the
+Xcode app target, which is generated from [`project.yml`](project.yml) by XcodeGen (the generated
+`Dashi.xcodeproj` is gitignored) and depends on `DashiCore`. One command does both:
 
 ```sh
-swift build -c release        # → .build/release/Dashi
+brew install xcodegen          # one-time
+bash Scripts/build-app.sh      # → .build/xcode/Build/Products/Release/Dashi.app
 ```
 
-> **Note — bundling.** A SwiftPM executable is a bare binary, not a `.app`. For distribution you
-> need a real app bundle. The robust path is to add an **Xcode app target** that depends on
-> `DashiCore` and produces `Dashi.app` (with `LSUIElement = true` so it stays menu-bar-only). The
-> steps below assume you have a `Dashi.app` — either from that Xcode target or assembled manually
-> (`Dashi.app/Contents/{MacOS/Dashi, Info.plist}`).
+`Dashi.app` is menu-bar-only (`LSUIElement`), bundle id `com.dashi.app`. `Scripts/build-app.sh`
+builds unsigned by default; set `DASHI_SIGN=1` (with a `DEVELOPMENT_TEAM`) once you're ready to sign,
+then continue below. (`swift run Dashi` remains the quick path for development.)
 
 ## 2. Sign with Hardened Runtime
 

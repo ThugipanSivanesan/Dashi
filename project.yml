@@ -1,0 +1,49 @@
+# XcodeGen spec for the distributable macOS app bundle.
+#
+# The SwiftPM package (Package.swift) remains the source of truth for code and tests
+# (`swift build` / `swift test` / `swift run Dashi` still work for development). This Xcode target
+# exists to produce a signable, notarizable `Dashi.app` that wraps the same sources and depends on
+# the DashiCore library. Regenerate the project with `xcodegen generate` (or `Scripts/build-app.sh`);
+# the generated `Dashi.xcodeproj` is gitignored.
+name: Dashi
+options:
+  bundleIdPrefix: com.dashi
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Set your Apple Developer Team ID here (or via Xcode) to enable signing.
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  DashiCore:
+    path: .
+
+# Target is named DashiApp (not "Dashi") to avoid colliding with the SwiftPM package's "Dashi"
+# executable product; PRODUCT_NAME below keeps the built bundle named Dashi.app.
+targets:
+  DashiApp:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Dashi
+    dependencies:
+      - package: DashiCore
+        product: DashiCore
+    settings:
+      base:
+        PRODUCT_NAME: Dashi
+        PRODUCT_BUNDLE_IDENTIFIER: com.dashi.app
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # Required for notarization.
+        ENABLE_HARDENED_RUNTIME: YES
+        # Sandbox stays OFF: the Claude gauge reads Claude Code's own Keychain item, which the
+        # App Sandbox would block. Distribution is via Developer ID + notarization, not the App Store.
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_STYLE: Automatic
