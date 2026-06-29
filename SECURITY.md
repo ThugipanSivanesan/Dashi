@@ -56,6 +56,12 @@ endpoints Dashi calls.
 **Out of scope:** the security of the provider APIs themselves, and the inherent ToS risk of the
 personal Claude-gauge feature (documented above).
 
+## Distributing a build
+
+Distributed builds must be **code-signed (Developer ID) + notarized**, with minimal entitlements and
+published checksums — unsigned apps weaken both Gatekeeper and the Keychain guarantees above. The
+full checklist is in [RELEASING.md](RELEASING.md).
+
 ## Revoking access
 
 - **Claude gauge:** log out of Claude Code (removes the shared token), or revoke the session/device
