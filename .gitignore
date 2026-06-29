@@ -6,6 +6,10 @@
 *.xcuserstate
 DerivedData/
 
+# Code-coverage profiles (from `swift test --enable-code-coverage`)
+*.profraw
+*.profdata
+
 # Secrets — keys live in the macOS Keychain, never on disk
 .env
 .env.*
