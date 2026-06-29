@@ -69,3 +69,24 @@ public func resetCountdown(to resetsAt: Date?, now: Date = Date()) -> String {
     let minutes = totalMinutes % 60
     return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
 }
+
+/// Formats when a window resets as a day + local time, e.g. "Mon at 11:00 AM",
+/// "today at 11:00 AM", "tomorrow at 11:00 AM", or "—" when unknown. Used for the weekly window,
+/// where a concrete day reads better than a seconds-ticking countdown.
+public func resetDayTime(
+    to resetsAt: Date?, now: Date = Date(), calendar: Calendar = .current
+) -> String {
+    guard let resetsAt else { return "—" }
+    let time = resetsAt.formatted(date: .omitted, time: .shortened)
+    let day: String
+    if calendar.isDate(resetsAt, inSameDayAs: now) {
+        day = "today"
+    } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
+        calendar.isDate(resetsAt, inSameDayAs: tomorrow)
+    {
+        day = "tomorrow"
+    } else {
+        day = resetsAt.formatted(.dateTime.weekday(.abbreviated))
+    }
+    return "\(day) at \(time)"
+}
