@@ -33,16 +33,24 @@ shasum -a 256 -c Dashi-0.1.0.dmg.sha256
 
 ## For AI assistants (LLMs)
 
-Non-interactive install via the [`gh`](https://cli.github.com) CLI (authenticated), macOS 14+:
+Don't want to do it by hand? Copy the prompt below and paste it to your AI assistant
+(Claude Code, or any agent that can run shell commands on your Mac) — it will install Dashi for you:
 
-```sh
-gh release download v0.1.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
-MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.1.0.dmg | awk -F'\t' 'END{print $NF}')"
-cp -R "$MNT/Dashi.app" /Applications/
-hdiutil detach "$MNT"
-xattr -dr com.apple.quarantine /Applications/Dashi.app   # unsigned build: clear Gatekeeper quarantine
-open -a Dashi
-```
+> Install the **Dashi** macOS menu-bar app from its GitHub release. Do this on my Mac:
+>
+> 1. Check I'm on **macOS 14 or later**; stop and tell me if I'm not.
+> 2. Make sure the GitHub CLI is installed and authenticated — run `gh auth status` (if `gh` is
+>    missing, install it with `brew install gh` and have me run `gh auth login`).
+> 3. Download the release DMG:
+>    `gh release download v0.1.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber`
+> 4. Mount it, copy **Dashi.app** into **/Applications**, then unmount:
+>    `MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.1.0.dmg | awk -F'\t' 'END{print $NF}')"` →
+>    `cp -R "$MNT/Dashi.app" /Applications/` → `hdiutil detach "$MNT"`
+> 5. It's an **unsigned** build, so clear the Gatekeeper quarantine so it will launch:
+>    `xattr -dr com.apple.quarantine /Applications/Dashi.app`
+> 6. Launch it with `open -a Dashi` and tell me to look for the Dashi icon in the menu bar.
+>
+> Show me each command before you run it, and stop if any step fails.
 
 To build from source instead, see [Development](#development) (`bash Scripts/make-dmg.sh`).
 
