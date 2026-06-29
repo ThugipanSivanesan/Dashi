@@ -31,6 +31,9 @@ public protocol ClaudeCredentialsReading: Sendable {
 
 /// Production reader: the macOS Keychain generic-password item Claude Code writes (service
 /// "Claude Code-credentials"), falling back to `~/.claude/.credentials.json` on setups that use it.
+///
+/// Credential locations/format informed by griffinmartin/opencode-claude-auth (MIT).
+/// https://github.com/griffinmartin/opencode-claude-auth
 public struct ClaudeCredentialsReader: ClaudeCredentialsReading {
     private let keychainService: String
     private let fileURL: URL
