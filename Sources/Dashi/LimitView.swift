@@ -77,15 +77,19 @@ struct LimitView: View {
 
     private func limitsView(_ limits: SubscriptionLimits) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            windowRow(title: "5-hour", limit: limits.fiveHour, prominent: true)
-            windowRow(title: "Weekly", limit: limits.sevenDay, prominent: false)
+            windowRow(
+                title: "5-hour", limit: limits.fiveHour, prominent: true, liveCountdown: true)
+            windowRow(
+                title: "Weekly", limit: limits.sevenDay, prominent: false, liveCountdown: false)
             Text("Updated \(limits.fetchedAt.formatted(date: .omitted, time: .shortened))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
     }
 
-    private func windowRow(title: String, limit: RollingLimit, prominent: Bool) -> some View {
+    private func windowRow(
+        title: String, limit: RollingLimit, prominent: Bool, liveCountdown: Bool
+    ) -> some View {
         let pct = Int(limit.utilization.rounded())
         let hot = pct >= 90
         return VStack(alignment: .leading, spacing: 4) {
@@ -98,11 +102,24 @@ struct LimitView: View {
             }
             ProgressView(value: min(max(limit.utilization, 0), 100), total: 100)
                 .tint(hot ? .red : .accentColor)
+            resetLabel(for: limit, liveCountdown: liveCountdown)
+        }
+    }
+
+    /// The 5-hour window ticks a live "resets in Xh Ym" countdown; the weekly window shows the
+    /// concrete reset day + time, which doesn't need per-second updates.
+    @ViewBuilder
+    private func resetLabel(for limit: RollingLimit, liveCountdown: Bool) -> some View {
+        if liveCountdown {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text("resets in \(resetCountdown(to: limit.resetsAt, now: context.date))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        } else {
+            Text("resets \(resetDayTime(to: limit.resetsAt))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

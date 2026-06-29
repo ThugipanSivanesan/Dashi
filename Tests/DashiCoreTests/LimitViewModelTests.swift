@@ -98,3 +98,38 @@ final class ResetCountdownTests: XCTestCase {
         XCTAssertEqual(resetCountdown(to: nil, now: now), "—")
     }
 }
+
+final class ResetDayTimeTests: XCTestCase {
+    // Pin to UTC so today/tomorrow day arithmetic is deterministic regardless of the host timezone.
+    private let calendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }()
+    // 1970-01-12 13:46:40 UTC — mid-day, so ±a few hours stays inside the same UTC day.
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    func testNilIsDash() {
+        XCTAssertEqual(resetDayTime(to: nil, now: now, calendar: calendar), "—")
+    }
+
+    func testLaterTodayIsToday() {
+        let result = resetDayTime(
+            to: now.addingTimeInterval(3 * 3600), now: now, calendar: calendar)
+        XCTAssertTrue(result.hasPrefix("today at "), result)
+    }
+
+    func testTomorrow() {
+        let result = resetDayTime(
+            to: now.addingTimeInterval(28 * 3600), now: now, calendar: calendar)
+        XCTAssertTrue(result.hasPrefix("tomorrow at "), result)
+    }
+
+    func testSeveralDaysOutShowsWeekday() {
+        let result = resetDayTime(
+            to: now.addingTimeInterval(4 * 24 * 3600), now: now, calendar: calendar)
+        XCTAssertFalse(result.hasPrefix("today"), result)
+        XCTAssertFalse(result.hasPrefix("tomorrow"), result)
+        XCTAssertTrue(result.contains(" at "), result)
+    }
+}
