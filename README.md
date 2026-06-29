@@ -7,6 +7,45 @@ roadmap.
 
 > macOS only for now. Native Swift + SwiftUI (`MenuBarExtra`).
 
+## Install
+
+Requires **macOS 14 or later**.
+
+1. Download **`Dashi-0.1.0.dmg`** from the
+   [latest release](https://github.com/ThugipanSivanesan/Dashi/releases/latest).
+2. Open the `.dmg` and drag **Dashi** into **Applications**.
+3. **First launch:** Dashi is an unsigned community build (not Apple-notarized), so macOS Gatekeeper
+   blocks it the first time. Open **System Settings → Privacy & Security**, scroll down, and click
+   **"Open Anyway"** (on macOS 15 Sequoia the Control-click → Open shortcut no longer bypasses
+   Gatekeeper). Or clear the quarantine flag yourself:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Dashi.app
+   ```
+
+Dashi runs in the **menu bar** (no Dock icon) — click its icon to see your usage. The Claude gauge
+reuses Claude Code's local login; see [Privacy](#privacy) for the personal-use / ToS note.
+
+**Verify your download** (optional, recommended) against the published checksum:
+
+```sh
+shasum -a 256 -c Dashi-0.1.0.dmg.sha256
+```
+
+## For AI assistants (LLMs)
+
+Non-interactive install via the [`gh`](https://cli.github.com) CLI (authenticated), macOS 14+:
+
+```sh
+gh release download v0.1.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
+MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.1.0.dmg | awk -F'\t' 'END{print $NF}')"
+cp -R "$MNT/Dashi.app" /Applications/
+hdiutil detach "$MNT"
+xattr -dr com.apple.quarantine /Applications/Dashi.app   # unsigned build: clear Gatekeeper quarantine
+open -a Dashi
+```
+
+To build from source instead, see [Development](#development) (`bash Scripts/make-dmg.sh`).
+
 ## Status
 
 - **Shipped:** Claude 5-hour limit gauge (reads the local Claude Code OAuth token; personal use —
@@ -66,12 +105,6 @@ bash Scripts/make-dmg.sh
 
 The Xcode app target is generated from `project.yml` (XcodeGen); the `.xcodeproj` is gitignored. See
 [RELEASING.md](RELEASING.md) for signing + notarization.
-
-### Connecting a provider
-
-Live per-day usage requires **admin/org-scoped** keys (Anthropic Usage & Cost Admin API; OpenAI
-organization usage/costs endpoints) — ordinary API keys cannot read usage. Keys are stored in the
-Keychain and read only at the point of use.
 
 ## Contributing
 
