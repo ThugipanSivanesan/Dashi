@@ -41,6 +41,7 @@ model, and how to revoke access are in **[SECURITY.md](SECURITY.md)**.
 - CI is least-privilege (`contents: read`), all actions are SHA-pinned, and runs on PRs + a weekly
   schedule.
 - Reporting a vulnerability and the full security model: see **[SECURITY.md](SECURITY.md)**.
+- Cutting a distributable build? Sign + notarize per **[RELEASING.md](RELEASING.md)**.
 
 ## Development
 
