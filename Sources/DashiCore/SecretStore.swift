@@ -31,21 +31,36 @@ public struct KeychainStore: SecretStore {
         ]
     }
 
+    /// Query for adding a new item. Pins accessibility so the secret is readable only while the
+    /// device is unlocked and is never synced off this device (no iCloud Keychain).
+    func addQuery(for key: String, data: Data) -> [String: Any] {
+        var query = baseQuery(key)
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        return query
+    }
+
+    /// Attributes for updating an existing item — re-pins accessibility so even items written by an
+    /// older build get the stricter setting.
+    func updateAttributes(data: Data) -> [String: Any] {
+        [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+    }
+
     public func set(_ secret: Secret, for key: String) throws {
         let data = Data(secret.reveal().utf8)
-        let query = baseQuery(key)
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        let status = SecItemCopyMatching(baseQuery(key) as CFDictionary, nil)
         switch status {
         case errSecSuccess:
-            let attrs = [kSecValueData as String: data]
-            let updateStatus = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+            let updateStatus = SecItemUpdate(
+                baseQuery(key) as CFDictionary, updateAttributes(data: data) as CFDictionary)
             guard updateStatus == errSecSuccess else {
                 throw SecretStoreError.unexpectedStatus(updateStatus)
             }
         case errSecItemNotFound:
-            var addQuery = query
-            addQuery[kSecValueData as String] = data
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            let addStatus = SecItemAdd(addQuery(for: key, data: data) as CFDictionary, nil)
             guard addStatus == errSecSuccess else {
                 throw SecretStoreError.unexpectedStatus(addStatus)
             }
