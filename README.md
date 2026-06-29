@@ -54,9 +54,15 @@ pre-commit install
 # the full local gate (format-lint + build + test) — mirrors CI
 bash Scripts/check.sh
 
-# run the app
+# run the app (quick dev loop)
 swift run Dashi
+
+# build the distributable Dashi.app bundle (needs XcodeGen: brew install xcodegen)
+bash Scripts/build-app.sh
 ```
+
+The Xcode app target is generated from `project.yml` (XcodeGen); the `.xcodeproj` is gitignored. See
+[RELEASING.md](RELEASING.md) for signing + notarization.
 
 ### Connecting a provider
 
