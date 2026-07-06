@@ -31,9 +31,10 @@ jobs:
       - uses: actions/checkout@v4
 
       # The runner's default Xcode (15.x) can't open the project XcodeGen emits (format 77 / Xcode 16).
-      # Select the newest Xcode installed on the runner before building.
+      # Point DEVELOPER_DIR at the newest Xcode on the runner so build-app.sh (which honours an
+      # existing DEVELOPER_DIR) uses it for every later step.
       - name: Select latest Xcode
-        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer"
+        run: echo "DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Install packaging tools
         run: brew install xcodegen create-dmg
