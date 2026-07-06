@@ -8,7 +8,11 @@ struct LimitMenuBarLabel: View {
     let codexViewModel: LimitViewModel
 
     var body: some View {
-        HStack(spacing: 6) {
+        Image(nsImage: renderedImage)
+    }
+
+    private var renderedImage: NSImage {
+        let content = HStack(spacing: 6) {
             ProviderMenuBarChip(state: claudeViewModel.state) {
                 ClaudeMarkView()
             }
@@ -16,6 +20,12 @@ struct LimitMenuBarLabel: View {
                 CodexMarkView()
             }
         }
+        .fixedSize()
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        let image = renderer.nsImage ?? NSImage()
+        image.isTemplate = true
+        return image
     }
 }
 
@@ -29,7 +39,8 @@ private struct ProviderMenuBarChip<Mark: View>: View {
             Text(text)
                 .monospacedDigit()
         }
-        .foregroundStyle(isLoaded ? .primary : .secondary)
+        .foregroundStyle(.black)
+        .opacity(isLoaded ? 1 : 0.55)
     }
 
     private var text: String {
