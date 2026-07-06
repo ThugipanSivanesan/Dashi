@@ -124,15 +124,76 @@ codesign -dvvv Dashi.app                               # confirm identifier, Tea
 
 ## 5. Package and publish
 
-- Wrap `Dashi.app` in a `.dmg` or `.zip` for the GitHub Release.
-- Publish **SHA-256 checksums** alongside the artifact so users can verify what they downloaded:
+- Package the notarized bundle. Pass `DASHI_ADHOC=0` so the packaging scripts keep your Developer ID
+  signature instead of re-signing ad-hoc:
   ```sh
-  shasum -a 256 Dashi.dmg > Dashi.dmg.sha256
+  DASHI_ADHOC=0 bash Scripts/make-dmg.sh    # → dist/Dashi-<version>.dmg (+ .sha256)
+  DASHI_ADHOC=0 bash Scripts/make-zip.sh    # → dist/Dashi-<version>.zip (+ .sha256)  ← Sparkle feed
   ```
-- Because Dashi is open source, security-conscious users can also build from source and compare.
+- Both scripts write **SHA-256 sidecars** so users (and the Homebrew cask) can verify what they
+  downloaded. Because Dashi is open source, security-conscious users can also build from source and
+  compare.
+- Attach the `.dmg`, `.zip`, and both `.sha256` files to the GitHub Release.
+
+See [Auto-updates](#auto-updates-sparkle) below for the Sparkle appcast, and
+[Homebrew](#homebrew-cask) / [Automated releases](#automated-releases-github-actions) for the rest.
 
 ## Trust summary
 
 Signed + notarized + checksummed releases, a minimal entitlement set, and a reproducible
 open-source build are what let the community trust a binary that touches their credentials. See
 [SECURITY.md](SECURITY.md) for the full security and privacy model.
+
+---
+
+## Auto-updates (Sparkle)
+
+The app target links [Sparkle](https://sparkle-project.org) for in-app updates. It's wired but
+**inert until you configure an update-signing key** — `App/Info.plist` ships with an empty
+`SUPublicEDKey`, so the app never checks for updates and "Check for Updates…" stays disabled. This is
+deliberate: an unconfigured ad-hoc build can't serve or verify updates anyway.
+
+One-time setup (requires a signed + notarized release flow, so pair it with Option B):
+
+1. **Generate the EdDSA key pair** (the private key is stored in your login Keychain):
+   ```sh
+   ./Scripts/generate-appcast.sh   # fails first run if tools missing — run `swift build` once to fetch Sparkle
+   # Generate keys with Sparkle's tool (also inside the fetched artifact):
+   $(find .build -path '*/Sparkle/bin/generate_keys' | head -1)
+   ```
+   It prints a **public key** — paste it into `SUPublicEDKey` in `App/Info.plist`.
+2. Confirm `SUFeedURL` in `App/Info.plist` points where you'll host the appcast (default:
+   `https://raw.githubusercontent.com/ThugipanSivanesan/Dashi/main/appcast.xml`).
+3. On each release, after signing + notarizing + zipping (steps above), **generate the appcast**:
+   ```sh
+   DOWNLOAD_URL_PREFIX="https://github.com/ThugipanSivanesan/Dashi/releases/download/v<version>/" \
+     bash Scripts/generate-appcast.sh
+   ```
+   This EdDSA-signs each update and writes `appcast.xml`. Commit it (so the raw `SUFeedURL` serves the
+   current feed) and attach the signed `.zip` to the release.
+4. Flip `SUEnableAutomaticChecks` to `true` in `App/Info.plist` once you're happy for the app to
+   check automatically.
+
+> Note: `raw.githubusercontent.com` caches for a few minutes; for faster propagation host the appcast
+> on GitHub Pages instead and update `SUFeedURL` to match.
+
+## Homebrew cask
+
+[`Casks/dashi.rb`](Casks/dashi.rb) is a cask template. To offer `brew install --cask dashi`:
+
+1. Create a tap repo (e.g. `ThugipanSivanesan/homebrew-tap`).
+2. On each release, update `version` + `sha256` (`shasum -a 256 dist/Dashi-<version>.zip`) in the
+   cask and copy it into the tap's `Casks/` directory.
+3. Users then run `brew tap ThugipanSivanesan/tap && brew install --cask dashi`.
+
+The cask installs the `.zip` build and sets `auto_updates true` so Homebrew defers to Sparkle.
+
+## Automated releases (GitHub Actions)
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs on a `v*` tag push (or manual
+dispatch). With no secrets set it builds the **ad-hoc** `.dmg` + `.zip` and publishes a GitHub
+Release. Add these repo secrets to unlock the signed + notarized path (sign → notarize → staple →
+appcast): `DEVELOPER_ID`, `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `NOTARY_APPLE_ID`,
+`NOTARY_TEAM_ID`, `NOTARY_PASSWORD`.
+
+> Heads-up: GitHub Actions must be enabled/funded for this to run — see the repo's CI status.

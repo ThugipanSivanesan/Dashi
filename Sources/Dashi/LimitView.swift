@@ -2,74 +2,152 @@ import AppKit
 import DashiCore
 import SwiftUI
 
-/// Compact menu-bar readout: the 5-hour utilization at a glance, or a warning glyph.
+/// Compact menu-bar readout: the highest loaded 5-hour utilization, or a status glyph.
 struct LimitMenuBarLabel: View {
-    let viewModel: LimitViewModel
+    let claudeViewModel: LimitViewModel
+    let codexViewModel: LimitViewModel
 
     var body: some View {
-        switch viewModel.state {
-        case .loading:
+        if let utilization = highestUtilization {
+            Text("\(Int(utilization.rounded()))%")
+        } else if isLoading {
             Image(systemName: "gauge.with.dots.needle.50percent")
-        case .loaded(let limits):
-            Text("\(Int(limits.fiveHour.utilization.rounded()))%")
-        case .needsConsent:
-            Image(systemName: "exclamationmark.shield")
-        case .notSignedIn, .needsReauth:
+        } else {
             Image(systemName: "exclamationmark.triangle.fill")
-        case .failed:
-            Image(systemName: "gauge.with.dots.needle.0percent")
+        }
+    }
+
+    private var highestUtilization: Double? {
+        [claudeViewModel.state, codexViewModel.state].compactMap { state in
+            guard case .loaded(let limits) = state else { return nil }
+            return limits.fiveHour.utilization
+        }.max()
+    }
+
+    private var isLoading: Bool {
+        [claudeViewModel.state, codexViewModel.state].contains { state in
+            if case .loading = state { return true }
+            return false
         }
     }
 }
 
-/// The popup: 5-hour and weekly gauges with live reset countdowns.
+/// The popup: one shared consent gate followed by Claude and Codex usage gauges.
 struct LimitView: View {
-    let viewModel: LimitViewModel
+    let claudeViewModel: LimitViewModel
+    let codexViewModel: LimitViewModel
+    let consent: UserDefaultsConsentStore
+    @ObservedObject var updater: Updater
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Claude usage").font(.headline)
-                Spacer()
-                Button {
-                    Task { await viewModel.load() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh")
+            header
+
+            if consent.hasConsented() {
+                LimitSection(
+                    title: "Claude",
+                    viewModel: claudeViewModel,
+                    notSignedIn: "Log in to Claude Code to see your usage.",
+                    needsReauth: "Your Claude session expired — re-authenticate in Claude Code.")
+                Divider()
+                LimitSection(
+                    title: "Codex",
+                    viewModel: codexViewModel,
+                    notSignedIn: "Open the Codex CLI (run `codex`) and log in to see your usage.",
+                    needsReauth: "Your Codex session expired — run `codex` to re-authenticate.")
+            } else {
+                consentPrompt
             }
 
-            content
-
             Divider()
+            Button("Check for Updates…") { updater.checkForUpdates() }
+                .disabled(!updater.canCheckForUpdates)
             Button("Quit Dashi") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
         }
         .padding(14)
         .frame(width: 300)
-        .task { await viewModel.load() }
+        .task {
+            await claudeViewModel.load()
+            await codexViewModel.load()
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Usage").font(.headline)
+            Spacer()
+            Button {
+                Task {
+                    await claudeViewModel.load()
+                    await codexViewModel.load()
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Refresh")
+        }
+    }
+
+    private var consentPrompt: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Experimental feature", systemImage: "exclamationmark.shield")
+                .font(.callout)
+                .foregroundStyle(.orange)
+            Text(
+                "Showing your Claude and Codex usage reuses each tool's local login token "
+                    + "(from Claude Code and the Codex CLI) to call unofficial usage endpoints. "
+                    + "This is a personal-use feature that may violate the providers' Terms of "
+                    + "Service and could stop working without notice."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            if let url = URL(
+                string: "https://github.com/ThugipanSivanesan/Dashi/blob/main/SECURITY.md")
+            {
+                Link("Learn more", destination: url).font(.caption)
+            }
+            Button("Enable usage gauges") {
+                Task {
+                    await claudeViewModel.grantConsent()
+                    await codexViewModel.grantConsent()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 2)
+        }
+    }
+}
+
+/// A provider-specific usage section backed by a shared state renderer.
+private struct LimitSection: View {
+    let title: String
+    let viewModel: LimitViewModel
+    let notSignedIn: String
+    let needsReauth: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.subheadline)
+            content
+        }
     }
 
     @ViewBuilder
     private var content: some View {
         switch viewModel.state {
-        case .loading:
+        case .loading, .needsConsent:
             ProgressView()
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 8)
         case .loaded(let limits):
             limitsView(limits)
-        case .needsConsent:
-            consentPrompt
         case .notSignedIn:
-            message(
-                "Log in to Claude Code to see your usage.",
-                systemImage: "person.crop.circle.badge.questionmark")
+            message(notSignedIn, systemImage: "person.crop.circle.badge.questionmark")
         case .needsReauth:
-            message(
-                "Your Claude session expired — re-authenticate in Claude Code.",
-                systemImage: "exclamationmark.triangle")
+            message(needsReauth, systemImage: "exclamationmark.triangle")
         case .failed(let text):
             message(text, systemImage: "exclamationmark.triangle")
         }
@@ -106,8 +184,6 @@ struct LimitView: View {
         }
     }
 
-    /// The 5-hour window ticks a live "resets in Xh Ym" countdown; the weekly window shows the
-    /// concrete reset day + time, which doesn't need per-second updates.
     @ViewBuilder
     private func resetLabel(for limit: RollingLimit, liveCountdown: Bool) -> some View {
         if liveCountdown {
@@ -120,32 +196,6 @@ struct LimitView: View {
             Text("resets \(resetDayTime(to: limit.resetsAt))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    private var consentPrompt: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Experimental feature", systemImage: "exclamationmark.shield")
-                .font(.callout)
-                .foregroundStyle(.orange)
-            Text(
-                "Showing your Claude usage reuses Claude Code's login token to call an unofficial "
-                    + "endpoint. This is a personal-use feature that may violate Anthropic's Terms "
-                    + "of Service and could stop working without notice."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            if let url = URL(
-                string: "https://github.com/ThugipanSivanesan/Dashi/blob/main/SECURITY.md")
-            {
-                Link("Learn more", destination: url).font(.caption)
-            }
-            Button("Enable Claude usage") {
-                Task { await viewModel.grantConsent() }
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 2)
         }
     }
 
