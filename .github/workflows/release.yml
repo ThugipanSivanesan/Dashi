@@ -36,10 +36,36 @@ jobs:
       # Point DEVELOPER_DIR at the newest Xcode on the runner so build-app.sh (which honours an
       # existing DEVELOPER_DIR) uses it for every later step.
       - name: Select latest Xcode
-        run: echo "DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer" >> "$GITHUB_ENV"
+        run: |
+          newest="$(find /Applications -maxdepth 1 -type d -name 'Xcode_*.app' | sort -V | tail -1)"
+          echo "DEVELOPER_DIR=${newest}/Contents/Developer" >> "$GITHUB_ENV"
 
-      - name: Install packaging tools
-        run: brew install xcodegen create-dmg
+      # Pinned, checksum-verified packaging tools (replaces unpinned `brew install`) so a swapped or
+      # tampered tool can't slip into the job that later handles signing secrets. XcodeGen publishes
+      # no vendor checksum, so its SHA-256 is pinned by us; create-dmg's matches Homebrew's formula.
+      - name: Install pinned packaging tools
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+
+          xg_sha=090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
+          curl -sSfL "https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip" -o "$tools/xcodegen.zip"
+          echo "${xg_sha}  ${tools}/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$tools/xcodegen.zip" -d "$tools"
+          chmod +x "$tools/xcodegen/bin/xcodegen"
+          echo "$tools/xcodegen/bin" >> "$GITHUB_PATH"
+
+          cd_sha=c50d2bc97c3d6292642bac55f530d247eaf4bf65ee605f26b4caf339383e381c
+          curl -sSfL "https://github.com/create-dmg/create-dmg/archive/refs/tags/v1.3.0.tar.gz" -o "$tools/create-dmg.tgz"
+          echo "${cd_sha}  ${tools}/create-dmg.tgz" | shasum -a 256 -c -
+          tar -xzf "$tools/create-dmg.tgz" -C "$tools"
+          chmod +x "$tools/create-dmg-1.3.0/create-dmg"
+          echo "$tools/create-dmg-1.3.0" >> "$GITHUB_PATH"
+
+          # Confirm both resolve before later steps rely on them (via GITHUB_PATH).
+          PATH="$tools/xcodegen/bin:$tools/create-dmg-1.3.0:$PATH" xcodegen --version
+          test -x "$tools/create-dmg-1.3.0/create-dmg"
 
       # Resolve the signing path once: require the complete Developer ID + notary set, or none.
       # A partial configuration fails here (F-07) instead of half-signing later. Every signing step

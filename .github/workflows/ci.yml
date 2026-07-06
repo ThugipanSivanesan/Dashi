@@ -97,3 +97,19 @@ jobs:
             exit 0
           fi
           exit $code
+
+  actionlint:
+    name: Lint workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install actionlint # pinned CLI binary, checksum-verified (same pattern as the scanners)
+        run: |
+          V=1.7.12
+          SHA=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${V}/actionlint_${V}_linux_amd64.tar.gz" -o al.tgz
+          echo "${SHA}  al.tgz" | sha256sum -c -
+          tar -xzf al.tgz actionlint
+          sudo install actionlint /usr/local/bin/actionlint
+      - name: Lint workflows # ubuntu runners ship shellcheck, so embedded run: scripts are linted too
+        run: actionlint -color
