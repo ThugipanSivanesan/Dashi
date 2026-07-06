@@ -26,5 +26,14 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Thugipan Sivanesan. MIT License.</string>
+	<!-- Sparkle auto-update. SUPublicEDKey is intentionally EMPTY until a Developer ID release:
+	     run Sparkle's `generate_keys`, paste the public key here, then sign updates with the
+	     private key (see RELEASING.md). While it's empty the app never checks for updates. -->
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/ThugipanSivanesan/Dashi/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string></string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
 </dict>
 </plist>

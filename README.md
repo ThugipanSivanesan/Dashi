@@ -1,9 +1,9 @@
 # Dashi
 
-A small macOS **menu bar** app that shows your Claude subscription's **5-hour usage limit** at a
-glance — click the menu bar icon to see how much of the rolling window you've used and when it
-resets, without opening Claude. A multi-provider usage/cost dashboard (Anthropic, OpenAI) is on the
-roadmap.
+A small macOS **menu bar** app that shows your **Claude** and **Codex** subscription usage limits at
+a glance — click the menu bar icon to see how much of each rolling window (5-hour and weekly) you've
+used and when it resets, without opening Claude Code or the Codex CLI. The menu bar shows whichever
+provider you're closest to your limit on.
 
 > macOS only for now. Native Swift + SwiftUI (`MenuBarExtra`).
 
@@ -11,7 +11,7 @@ roadmap.
 
 Requires **macOS 14 or later**.
 
-1. Download **`Dashi-0.1.0.dmg`** from the
+1. Download **`Dashi-0.2.0.dmg`** from the
    [latest release](https://github.com/ThugipanSivanesan/Dashi/releases/latest).
 2. Open the `.dmg` and drag **Dashi** into **Applications**.
 3. **First launch:** Dashi is an unsigned community build (not Apple-notarized), so macOS Gatekeeper
@@ -22,13 +22,15 @@ Requires **macOS 14 or later**.
    xattr -dr com.apple.quarantine /Applications/Dashi.app
    ```
 
-Dashi runs in the **menu bar** (no Dock icon) — click its icon to see your usage. The Claude gauge
-reuses Claude Code's local login; see [Privacy](#privacy) for the personal-use / ToS note.
+Dashi runs in the **menu bar** (no Dock icon) — click its icon to see your usage. The gauges reuse
+Claude Code's and the Codex CLI's local logins; see [Privacy](#privacy) for the personal-use / ToS
+note. A `.zip` and a Homebrew cask are also published for signed releases (in-app updates via
+Sparkle) — see [RELEASING.md](RELEASING.md).
 
 **Verify your download** (optional, recommended) against the published checksum:
 
 ```sh
-shasum -a 256 -c Dashi-0.1.0.dmg.sha256
+shasum -a 256 -c Dashi-0.2.0.dmg.sha256
 ```
 
 ## For AI assistants (LLMs)
@@ -45,9 +47,9 @@ Install the Dashi macOS menu-bar app from its GitHub release. Do this on my Mac:
 2. Make sure the GitHub CLI is installed and authenticated — run `gh auth status`
    (if `gh` is missing, install it with `brew install gh` and have me run `gh auth login`).
 3. Download the release DMG:
-   gh release download v0.1.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
+   gh release download v0.2.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
 4. Mount it, copy Dashi.app into /Applications, then unmount:
-   MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.1.0.dmg | awk -F'\t' 'END{print $NF}')"
+   MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.2.0.dmg | awk -F'\t' 'END{print $NF}')"
    cp -R "$MNT/Dashi.app" /Applications/
    hdiutil detach "$MNT"
 5. It's an unsigned build, so clear the Gatekeeper quarantine so it will launch:
@@ -61,8 +63,8 @@ To build from source instead, see [Development](#development) (`bash Scripts/mak
 
 ## Status
 
-- **Shipped:** Claude 5-hour limit gauge (reads the local Claude Code OAuth token; personal use —
-  see [Privacy](#privacy)).
+- **Shipped:** Claude and Codex usage gauges — each shows its 5-hour and weekly rolling windows,
+  read from the local Claude Code / Codex CLI OAuth token (personal use — see [Privacy](#privacy)).
 - **Roadmap:** refresh/threshold alerts, and a multi-provider Admin-API usage/cost dashboard.
 
 ## Architecture
@@ -72,17 +74,20 @@ To build from source instead, see [Development](#development) (`bash Scripts/mak
 | `DashiCore`  | All testable logic: config, secret-safe types, Keychain, redaction, providers |
 | `Dashi`      | Thin SwiftUI `MenuBarExtra` app (no Dock icon) that renders `DashiCore` data  |
 
-Usage sources are pluggable behind a `UsageProvider` protocol selected by a `ProviderMode` enum;
-the **offline stub is the default**, and live providers lazy-load their network path only when
-selected. See `Sources/DashiCore`.
+Each gauge is a `LimitProvider` (`ClaudeSubscriptionProvider`, `CodexSubscriptionProvider`) that
+reads a locally-stored OAuth token and returns the rolling-window `SubscriptionLimits`; the network
+transport is injected so the whole path is unit-tested without hitting the network. A separate
+`UsageProvider`/`ProviderMode` track (offline stub by default) scaffolds the roadmap usage/cost
+dashboard. See `Sources/DashiCore`.
 
 ## Privacy
 
 Dashi talks **only to the AI providers' own APIs**, directly from your Mac — **no telemetry, no
 analytics, no "phone home."** Your usage figures and credentials never leave your machine. The
-Claude gauge reuses the OAuth token Claude Code already stores in your Keychain (read-only, never
-copied or logged); note this is a **personal-use, ToS grey-area** feature. Full details, the threat
-model, and how to revoke access are in **[SECURITY.md](SECURITY.md)**.
+gauges reuse the OAuth tokens Claude Code (Keychain) and the Codex CLI (`~/.codex/auth.json`)
+already store locally — **read-only, never copied, written back, or logged**; note this is a
+**personal-use, ToS grey-area** feature. Full details, the threat model, and how to revoke access
+are in **[SECURITY.md](SECURITY.md)**.
 
 ## Security
 
@@ -112,13 +117,15 @@ swift run Dashi
 # build the distributable Dashi.app bundle (needs XcodeGen: brew install xcodegen)
 bash Scripts/build-app.sh
 
-# package an unsigned (ad-hoc signed) .dmg for a GitHub release → dist/Dashi-<version>.dmg
+# package an unsigned (ad-hoc signed) .dmg and/or Sparkle .zip → dist/Dashi-<version>.{dmg,zip}
 # (needs create-dmg: brew install create-dmg)
 bash Scripts/make-dmg.sh
+bash Scripts/make-zip.sh
 ```
 
-The Xcode app target is generated from `project.yml` (XcodeGen); the `.xcodeproj` is gitignored. See
-[RELEASING.md](RELEASING.md) for signing + notarization.
+The Xcode app target is generated from `project.yml` (XcodeGen); the `.xcodeproj` is gitignored. It
+links **Sparkle** for in-app auto-updates (inert until an update-signing key is configured). See
+[RELEASING.md](RELEASING.md) for signing, notarization, the Sparkle appcast, and the Homebrew cask.
 
 ## Contributing
 

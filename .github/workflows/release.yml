@@ -1,0 +1,86 @@
+# Builds and publishes a Dashi release when a `v*` tag is pushed.
+#
+# Out of the box this produces an ad-hoc-signed (unsigned/not-notarized) .dmg + .zip and attaches
+# them to a GitHub Release — the same artifacts Scripts/make-dmg.sh / make-zip.sh build locally.
+# When the Developer ID secrets are present it also signs, notarizes, staples, and refreshes the
+# Sparkle appcast. All signing steps are guarded on secrets, so the workflow is a no-op-until-ready
+# scaffold today (no Apple account required to run the ad-hoc path). See RELEASING.md.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      # Populate these repo secrets to unlock the trusted (signed + notarized) path.
+      DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+      NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+      NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+      NOTARY_PROFILE: AC_NOTARY
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: brew install xcodegen create-dmg
+
+      - name: Build Dashi.app
+        run: bash Scripts/build-app.sh
+
+      # --- Trusted path (only when Developer ID secrets are configured) ---------------------------
+      - name: Import Developer ID certificate
+        if: ${{ env.DEVELOPER_ID != '' && env.MACOS_CERT_P12_BASE64 != '' }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+
+      - name: Store notarytool credentials
+        if: ${{ env.DEVELOPER_ID != '' && env.NOTARY_PASSWORD != '' }}
+        run: |
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+
+      - name: Sign + notarize + staple
+        if: ${{ env.DEVELOPER_ID != '' }}
+        run: bash Scripts/sign-and-notarize.sh
+
+      # --- Package (ad-hoc by default; keeps the Developer ID signature when it's present) ---------
+      - name: Package .dmg and .zip
+        env:
+          DASHI_ADHOC: ${{ env.DEVELOPER_ID != '' && '0' || '1' }}
+        run: |
+          bash Scripts/make-dmg.sh
+          bash Scripts/make-zip.sh
+
+      - name: Refresh Sparkle appcast
+        if: ${{ env.DEVELOPER_ID != '' }}
+        env:
+          DOWNLOAD_URL_PREFIX: "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/"
+        run: bash Scripts/generate-appcast.sh
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Automated release. Ad-hoc builds are not notarized: first launch via System Settings → Privacy & Security → Open Anyway. Verify downloads against the .sha256 sidecars."
+          gh release create "${{ github.ref_name }}" \
+            dist/Dashi-*.dmg dist/Dashi-*.dmg.sha256 \
+            dist/Dashi-*.zip dist/Dashi-*.zip.sha256 \
+            --title "Dashi ${{ github.ref_name }}" \
+            --notes "$NOTES"
