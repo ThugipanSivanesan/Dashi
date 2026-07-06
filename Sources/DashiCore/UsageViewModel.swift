@@ -27,9 +27,9 @@ public final class UsageViewModel {
         do {
             let summary = try await provider.todayUsage()
             state = summary.providers.isEmpty ? .empty : .loaded(summary)
-        } catch let UsageError.notConnected(provider) {
+        } catch UsageError.notConnected(let provider) {
             state = .failed("Connect your \(provider.displayName) account")
-        } catch let UsageError.requestFailed(message) {
+        } catch UsageError.requestFailed(let message) {
             state = .failed(message)
         } catch {
             state = .failed("Couldn't load usage")
