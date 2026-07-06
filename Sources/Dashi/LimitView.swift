@@ -13,12 +13,8 @@ struct LimitMenuBarLabel: View {
 
     private var renderedImage: NSImage {
         let content = HStack(spacing: 6) {
-            ProviderMenuBarChip(state: claudeViewModel.state) {
-                ClaudeMarkView()
-            }
-            ProviderMenuBarChip(state: codexViewModel.state) {
-                CodexMarkView()
-            }
+            ProviderMenuBarChip(state: claudeViewModel.state, label: "CC")
+            ProviderMenuBarChip(state: codexViewModel.state, label: "CX")
         }
         .fixedSize()
         let renderer = ImageRenderer(content: content)
@@ -29,21 +25,22 @@ struct LimitMenuBarLabel: View {
     }
 }
 
-private struct ProviderMenuBarChip<Mark: View>: View {
+private struct ProviderMenuBarChip: View {
     let state: LimitState
-    @ViewBuilder let mark: () -> Mark
+    let label: String
 
     var body: some View {
         HStack(spacing: 3) {
-            mark()
-            Text(text)
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+            Text(percentageText)
                 .monospacedDigit()
         }
         .foregroundStyle(.black)
         .opacity(isLoaded ? 1 : 0.55)
     }
 
-    private var text: String {
+    private var percentageText: String {
         switch state {
         case .loaded(let limits):
             "\(Int(limits.fiveHour.utilization.rounded()))%"
