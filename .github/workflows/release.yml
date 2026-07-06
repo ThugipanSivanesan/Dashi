@@ -30,6 +30,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The runner's default Xcode (15.x) can't open the project XcodeGen emits (format 77 / Xcode 16).
+      # Select the newest Xcode installed on the runner before building.
+      - name: Select latest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer"
+
       - name: Install packaging tools
         run: brew install xcodegen create-dmg
 
