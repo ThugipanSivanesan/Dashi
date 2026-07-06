@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparkle appcast feed. This is an EMPTY placeholder so the SUFeedURL in App/Info.plist resolves.
+  Scripts/generate-appcast.sh regenerates it (with EdDSA-signed <item> entries) at each Developer ID
+  release; commit the regenerated file so the raw URL serves the current feed. See RELEASING.md.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Dashi</title>
+    <link>https://raw.githubusercontent.com/ThugipanSivanesan/Dashi/main/appcast.xml</link>
+    <description>Dashi update feed</description>
+    <language>en</language>
+  </channel>
+</rss>

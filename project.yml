@@ -15,14 +15,18 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
     # Set your Apple Developer Team ID here (or via Xcode) to enable signing.
     DEVELOPMENT_TEAM: ""
 
 packages:
   DashiCore:
     path: .
+  # Sparkle powers in-app auto-updates for the distributable build (see Updater.swift, RELEASING.md).
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
 
 # Target is named DashiApp (not "Dashi") to avoid colliding with the SwiftPM package's "Dashi"
 # executable product; PRODUCT_NAME below keeps the built bundle named Dashi.app.
@@ -35,6 +39,8 @@ targets:
     dependencies:
       - package: DashiCore
         product: DashiCore
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_NAME: Dashi
