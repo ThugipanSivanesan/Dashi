@@ -54,12 +54,15 @@ public disclosure.
 
 ## Defense-in-depth
 
-- Secrets are wrapped in a non-printing `Secret` type and every log line passes through a redacting
-  filter (`Redactor`), so a key cannot land in logs by accident.
-- `.env` is for **non-secret config only**; secrets never go in files. `.gitignore` excludes `.env`,
-  `*.key`, `*.pem`, and `secrets/`.
-- `gitleaks` runs in pre-commit **and** CI; `osv-scanner` + Dependabot watch dependencies; CI is
-  least-privilege (`contents: read`) with SHA-pinned actions.
+- Secrets are wrapped in a non-printing `Secret` type whose `description`/`debugDescription` render
+  as `***`, so a token can't reach a log line or string interpolation by accident. Dashi does **no
+  logging in production today**; a seeded `RedactingLog`/`Redactor` façade is provided to scrub any
+  logging added later and must be installed at startup before the first log call is introduced.
+- `.env` is for **non-secret config only**; Dashi never writes secrets to files. `.gitignore`
+  excludes `.env`, `*.key`, `*.pem`, and `secrets/`.
+- `gitleaks` runs in pre-commit **and** CI; CI checks the pinned Sparkle revision against OSV
+  (fail-closed) with Dependabot as backup; both CI and the release build SHA-pin every action, and
+  CI is least-privilege (`contents: read`).
 
 ## Scope
 

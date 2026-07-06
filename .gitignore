@@ -16,7 +16,8 @@ security-report.html
 *.profraw
 *.profdata
 
-# Secrets — keys live in the macOS Keychain, never on disk
+# Secrets — Dashi never writes secrets to disk (API keys it creates live in the macOS Keychain;
+# subscription tokens are read read-only from the provider CLIs' own files). Keep stray secret files out.
 .env
 .env.*
 !.env.example
