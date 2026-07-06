@@ -32,7 +32,7 @@ private struct ProviderMenuBarChip: View {
     var body: some View {
         HStack(spacing: 3) {
             Text(label)
-                .font(.body.weight(.semibold))
+                .font(.body)
             Text(percentageText)
                 .monospacedDigit()
         }
