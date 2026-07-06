@@ -29,7 +29,23 @@ public struct CodexSubscriptionProvider: LimitProvider {
         self.now = now
     }
 
+    /// The only host this provider may attach the OAuth token to.
+    static let allowedHost = "chatgpt.com"
+
+    /// Refuses to reveal the bearer token to anything but HTTPS on ``allowedHost``. The endpoint is
+    /// injectable for tests, so this is defense-in-depth against a misconfigured/injected URL
+    /// exfiltrating the credential to an unintended or plaintext destination.
+    static func validateEndpoint(_ url: URL) throws {
+        guard url.scheme?.lowercased() == "https",
+            url.host?.lowercased() == allowedHost
+        else {
+            throw LimitError.requestFailed("refusing to send credentials to an unexpected endpoint")
+        }
+    }
+
     public func currentLimits() async throws -> SubscriptionLimits {
+        try Self.validateEndpoint(endpoint)
+
         let token: CodexOAuthToken?
         do {
             token = try credentials.currentToken()

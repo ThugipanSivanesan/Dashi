@@ -106,6 +106,30 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
         XCTAssertEqual(headers["anthropic-beta"], "oauth-2025-04-20")
     }
 
+    func testRejectsNonAllowlistedEndpointBeforeSendingToken() async {
+        let epoch = epoch
+        let token = ClaudeOAuthToken(accessToken: Secret("t"), expiresAt: nil)
+        let mustNotRun: HTTPTransport = { _ in
+            XCTFail("transport must not run for a rejected endpoint")
+            throw LimitError.notSignedIn
+        }
+        for bad in [
+            "http://api.anthropic.com/api/oauth/usage",  // plaintext scheme
+            "https://evil.example.com/api/oauth/usage",  // wrong host
+        ] {
+            let provider = ClaudeSubscriptionProvider(
+                credentials: StubCredentialsReader(token: token),
+                transport: mustNotRun,
+                endpoint: URL(string: bad)!,
+                now: { epoch })
+            await assertThrows(provider) {
+                guard case .requestFailed = $0 else {
+                    return XCTFail("expected requestFailed for \(bad)")
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private actor HeaderCapture {

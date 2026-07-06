@@ -66,7 +66,7 @@ public struct CodexCredentialsReader: CodexCredentialsReading {
     }
 
     public func currentToken() throws -> CodexOAuthToken? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        guard let data = CredentialFile.read(at: fileURL) else { return nil }
         return try Self.parse(data)
     }
 
