@@ -5,6 +5,16 @@
 # When the Developer ID secrets are present it also signs, notarizes, staples, and refreshes the
 # Sparkle appcast. All signing steps are guarded on secrets, so the workflow is a no-op-until-ready
 # scaffold today (no Apple account required to run the ad-hoc path). See RELEASING.md.
+#
+# Security model (see SECURITY.md):
+#   * Actions are SHA-pinned (not moving tags) so a retagged/compromised action can't slip in.
+#   * The `build` job runs at `contents: read`. Signing secrets are attached only to the individual
+#     steps that use them — never to the job-wide `env:` — so checkout, brew, and the build step
+#     don't inherit them.
+#   * The write-capable token lives only in the separate `publish` job, which runs no third-party
+#     build code: it just downloads the built artifacts and creates the Release.
+#   * A single guard step requires the *complete* Developer ID + notary secret set or none, and
+#     exposes one `trusted` boolean that every signing step keys off (no partial/inconsistent runs).
 name: release
 
 on:
@@ -12,39 +22,93 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Least privilege by default; the publish job re-grants `contents: write` for itself only.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
     runs-on: macos-14
-    env:
-      # Populate these repo secrets to unlock the trusted (signed + notarized) path.
-      DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
-      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
-      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
-      NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
-      NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
-      NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
-      NOTARY_PROFILE: AC_NOTARY
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # The runner's default Xcode (15.x) can't open the project XcodeGen emits (format 77 / Xcode 16).
       # Point DEVELOPER_DIR at the newest Xcode on the runner so build-app.sh (which honours an
       # existing DEVELOPER_DIR) uses it for every later step.
       - name: Select latest Xcode
-        run: echo "DEVELOPER_DIR=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)/Contents/Developer" >> "$GITHUB_ENV"
+        run: |
+          newest="$(find /Applications -maxdepth 1 -type d -name 'Xcode_*.app' | sort -V | tail -1)"
+          echo "DEVELOPER_DIR=${newest}/Contents/Developer" >> "$GITHUB_ENV"
 
-      - name: Install packaging tools
-        run: brew install xcodegen create-dmg
+      # Pinned, checksum-verified packaging tools (replaces unpinned `brew install`) so a swapped or
+      # tampered tool can't slip into the job that later handles signing secrets. XcodeGen publishes
+      # no vendor checksum, so its SHA-256 is pinned by us; create-dmg's matches Homebrew's formula.
+      - name: Install pinned packaging tools
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/tools"
+          mkdir -p "$tools"
+
+          xg_sha=090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
+          curl -sSfL "https://github.com/yonaskolb/XcodeGen/releases/download/2.45.4/xcodegen.zip" -o "$tools/xcodegen.zip"
+          echo "${xg_sha}  ${tools}/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$tools/xcodegen.zip" -d "$tools"
+          chmod +x "$tools/xcodegen/bin/xcodegen"
+          echo "$tools/xcodegen/bin" >> "$GITHUB_PATH"
+
+          cd_sha=c50d2bc97c3d6292642bac55f530d247eaf4bf65ee605f26b4caf339383e381c
+          curl -sSfL "https://github.com/create-dmg/create-dmg/archive/refs/tags/v1.3.0.tar.gz" -o "$tools/create-dmg.tgz"
+          echo "${cd_sha}  ${tools}/create-dmg.tgz" | shasum -a 256 -c -
+          tar -xzf "$tools/create-dmg.tgz" -C "$tools"
+          chmod +x "$tools/create-dmg-1.3.0/create-dmg"
+          echo "$tools/create-dmg-1.3.0" >> "$GITHUB_PATH"
+
+          # Confirm both resolve before later steps rely on them (via GITHUB_PATH).
+          PATH="$tools/xcodegen/bin:$tools/create-dmg-1.3.0:$PATH" xcodegen --version
+          test -x "$tools/create-dmg-1.3.0/create-dmg"
+
+      # Resolve the signing path once: require the complete Developer ID + notary set, or none.
+      # A partial configuration fails here (F-07) instead of half-signing later. Every signing step
+      # below keys off the single `trusted` output rather than re-checking individual secrets.
+      - name: Determine signing path
+        id: guard
+        env:
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          present=0
+          for v in "$DEVELOPER_ID" "$MACOS_CERT_P12_BASE64" "$MACOS_CERT_PASSWORD" \
+                   "$NOTARY_APPLE_ID" "$NOTARY_TEAM_ID" "$NOTARY_PASSWORD"; do
+            if [ -n "$v" ]; then present=$((present + 1)); fi
+          done
+          if [ "$present" -eq 0 ]; then
+            echo "No signing secrets configured — building the ad-hoc (unsigned) path."
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+          elif [ "$present" -eq 6 ]; then
+            echo "All six signing secrets present — building the trusted (signed + notarized) path."
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Incomplete signing configuration: $present/6 secrets set. Provide the" \
+                 "complete Developer ID + notary set (DEVELOPER_ID, MACOS_CERT_P12_BASE64," \
+                 "MACOS_CERT_PASSWORD, NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD) or none."
+            exit 1
+          fi
 
       - name: Build Dashi.app
         run: bash Scripts/build-app.sh
 
-      # --- Trusted path (only when Developer ID secrets are configured) ---------------------------
+      # --- Trusted path (only when the complete Developer ID secret set is configured) -------------
+      # Secrets are scoped to each step's own `env:` so earlier untrusted steps never see them.
       - name: Import Developer ID certificate
-        if: ${{ env.DEVELOPER_ID != '' && env.MACOS_CERT_P12_BASE64 != '' }}
+        if: ${{ steps.guard.outputs.trusted == 'true' }}
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
         run: |
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
           security create-keychain -p "" "$KEYCHAIN"
@@ -57,32 +121,63 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 
       - name: Store notarytool credentials
-        if: ${{ env.DEVELOPER_ID != '' && env.NOTARY_PASSWORD != '' }}
+        if: ${{ steps.guard.outputs.trusted == 'true' }}
+        env:
+          NOTARY_PROFILE: AC_NOTARY
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
         run: |
           xcrun notarytool store-credentials "$NOTARY_PROFILE" \
             --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
 
       - name: Sign + notarize + staple
-        if: ${{ env.DEVELOPER_ID != '' }}
+        if: ${{ steps.guard.outputs.trusted == 'true' }}
+        env:
+          NOTARY_PROFILE: AC_NOTARY
+          DEVELOPER_ID: ${{ secrets.DEVELOPER_ID }}
         run: bash Scripts/sign-and-notarize.sh
 
       # --- Package (ad-hoc by default; keeps the Developer ID signature when it's present) ---------
       - name: Package .dmg and .zip
         env:
-          DASHI_ADHOC: ${{ env.DEVELOPER_ID != '' && '0' || '1' }}
+          DASHI_ADHOC: ${{ steps.guard.outputs.trusted == 'true' && '0' || '1' }}
         run: |
           bash Scripts/make-dmg.sh
           bash Scripts/make-zip.sh
 
       - name: Refresh Sparkle appcast
-        if: ${{ env.DEVELOPER_ID != '' }}
+        if: ${{ steps.guard.outputs.trusted == 'true' }}
         env:
           DOWNLOAD_URL_PREFIX: "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/"
         run: bash Scripts/generate-appcast.sh
 
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dashi-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Privileged publish is isolated from the build: it runs no third-party build code, only downloads
+  # the artifacts the build job produced and creates the Release. `contents: write` lives here alone.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dashi-dist
+          path: dist
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           NOTES="Automated release. Ad-hoc builds are not notarized: first launch via System Settings → Privacy & Security → Open Anyway. Verify downloads against the .sha256 sidecars."
           gh release create "${{ github.ref_name }}" \

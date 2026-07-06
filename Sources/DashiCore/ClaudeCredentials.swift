@@ -67,7 +67,7 @@ public struct ClaudeCredentialsReader: ClaudeCredentialsReading {
     }
 
     private func fileData() -> Data? {
-        try? Data(contentsOf: fileURL)
+        CredentialFile.read(at: fileURL)
     }
 
     /// Parses the `{ "claudeAiOauth": { "accessToken", "expiresAt" } }` payload. `expiresAt` is epoch

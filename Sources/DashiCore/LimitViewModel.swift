@@ -51,7 +51,7 @@ public final class LimitViewModel {
             state = .notSignedIn
         } catch LimitError.needsReauth {
             state = .needsReauth
-        } catch let LimitError.requestFailed(message) {
+        } catch LimitError.requestFailed(let message) {
             state = .failed(message)
         } catch {
             state = .failed("Couldn't load usage")

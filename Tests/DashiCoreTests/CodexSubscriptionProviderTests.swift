@@ -125,6 +125,29 @@ final class CodexSubscriptionProviderTests: XCTestCase {
         XCTAssertNil(headers["ChatGPT-Account-Id"])
     }
 
+    func testRejectsNonAllowlistedEndpointBeforeSendingToken() async {
+        let epoch = epoch
+        let mustNotRun: HTTPTransport = { _ in
+            XCTFail("transport must not run for a rejected endpoint")
+            throw LimitError.notSignedIn
+        }
+        for bad in [
+            "http://chatgpt.com/backend-api/wham/usage",  // plaintext scheme
+            "https://evil.example.com/backend-api/wham/usage",  // wrong host
+        ] {
+            let provider = CodexSubscriptionProvider(
+                credentials: StubCodexCredentialsReader(token: token()),
+                transport: mustNotRun,
+                endpoint: URL(string: bad)!,
+                now: { epoch })
+            await assertThrows(provider) {
+                guard case .requestFailed = $0 else {
+                    return XCTFail("expected requestFailed for \(bad)")
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private actor HeaderCapture {

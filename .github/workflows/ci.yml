@@ -37,7 +37,10 @@ jobs:
       - name: Install gitleaks # pinned CLI binary, not the action (no GitHub API → works on forks)
         run: |
           V=8.30.1
+          # Pin the vendor SHA-256 and verify before use so a swapped/tampered asset fails the job.
+          SHA=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${V}/gitleaks_${V}_linux_x64.tar.gz" -o gl.tgz
+          echo "${SHA}  gl.tgz" | sha256sum -c -
           tar -xzf gl.tgz gitleaks
           sudo install gitleaks /usr/local/bin/gitleaks
       - name: Scan git history
@@ -51,18 +54,62 @@ jobs:
       - name: Install osv-scanner
         run: |
           V=2.4.0
+          # Pin the vendor SHA-256 and verify before use so a swapped/tampered asset fails the job.
+          SHA=15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0
           curl -sSfL "https://github.com/google/osv-scanner/releases/download/v${V}/osv-scanner_linux_amd64" -o osv-scanner
+          echo "${SHA}  osv-scanner" | sha256sum -c -
           sudo install osv-scanner /usr/local/bin/osv-scanner
-      - name: Scan source
+      - name: Scan Swift dependencies against OSV (fail closed)
         run: |
-          # Swift's Package.resolved is not yet an osv-scanner-supported lockfile, so today this
-          # scans any other supported manifests and is a no-op when none exist (exit 128). It fails
-          # the build on real vulnerabilities (exit 1) once scannable dependencies are added.
+          # osv-scanner can't parse SwiftPM's Package.resolved, so the source scan below never sees
+          # our actual dependencies. Query the OSV API directly for each pinned revision instead so
+          # the only real dependency (Sparkle) is genuinely checked. Fails closed: any reported vuln,
+          # or an unreachable API, fails the job rather than passing green.
+          set -euo pipefail
+          fail=0
+          revs="$(jq -r '.pins[] | "\(.identity) \(.state.revision)"' Package.resolved)"
+          if [ -z "$revs" ]; then
+            echo "::error::No pinned dependencies found in Package.resolved — expected at least one."
+            exit 1
+          fi
+          while read -r name rev; do
+            resp="$(curl -sSf -X POST -d "{\"commit\":\"${rev}\"}" https://api.osv.dev/v1/query)"
+            count="$(printf '%s' "$resp" | jq '(.vulns // []) | length')"
+            if [ "$count" -gt 0 ]; then
+              echo "::error::OSV reports ${count} vulnerability(ies) for ${name} @ ${rev}:"
+              printf '%s' "$resp" | jq -r '.vulns[].id'
+              fail=1
+            else
+              echo "OSV: no known vulnerabilities for ${name} @ ${rev}."
+            fi
+          done <<< "$revs"
+          exit $fail
+      - name: Scan source (other supported manifests)
+        run: |
+          # Covers any non-Swift manifests added later (npm, pip, etc.). SwiftPM's Package.resolved is
+          # still unsupported here — the OSV API step above is what guards it. This step is a genuine
+          # no-op today (exit 128 = no supported manifests) and fails the build on real vulns (exit 1).
           set +e
           osv-scanner scan source --recursive .
           code=$?
           if [ "$code" -eq 128 ]; then
-            echo "osv-scanner: no supported manifests found — nothing to scan yet."
+            echo "osv-scanner: no additional supported manifests found (Swift deps covered above)."
             exit 0
           fi
           exit $code
+
+  actionlint:
+    name: Lint workflows (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install actionlint # pinned CLI binary, checksum-verified (same pattern as the scanners)
+        run: |
+          V=1.7.12
+          SHA=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${V}/actionlint_${V}_linux_amd64.tar.gz" -o al.tgz
+          echo "${SHA}  al.tgz" | sha256sum -c -
+          tar -xzf al.tgz actionlint
+          sudo install actionlint /usr/local/bin/actionlint
+      - name: Lint workflows # ubuntu runners ship shellcheck, so embedded run: scripts are linted too
+        run: actionlint -color
