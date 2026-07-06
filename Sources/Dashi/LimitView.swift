@@ -2,33 +2,50 @@ import AppKit
 import DashiCore
 import SwiftUI
 
-/// Compact menu-bar readout: the highest loaded 5-hour utilization, or a status glyph.
+/// Compact menu-bar readout for both providers' 5-hour utilization.
 struct LimitMenuBarLabel: View {
     let claudeViewModel: LimitViewModel
     let codexViewModel: LimitViewModel
 
     var body: some View {
-        if let utilization = highestUtilization {
-            Text("\(Int(utilization.rounded()))%")
-        } else if isLoading {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-        } else {
-            Image(systemName: "exclamationmark.triangle.fill")
+        HStack(spacing: 6) {
+            ProviderMenuBarChip(state: claudeViewModel.state) {
+                ClaudeMarkView()
+            }
+            ProviderMenuBarChip(state: codexViewModel.state) {
+                CodexMarkView()
+            }
+        }
+    }
+}
+
+private struct ProviderMenuBarChip<Mark: View>: View {
+    let state: LimitState
+    @ViewBuilder let mark: () -> Mark
+
+    var body: some View {
+        HStack(spacing: 3) {
+            mark()
+            Text(text)
+                .monospacedDigit()
+        }
+        .foregroundStyle(isLoaded ? .primary : .secondary)
+    }
+
+    private var text: String {
+        switch state {
+        case .loaded(let limits):
+            "\(Int(limits.fiveHour.utilization.rounded()))%"
+        case .loading:
+            "…"
+        case .notSignedIn, .needsReauth, .needsConsent, .failed:
+            "–"
         }
     }
 
-    private var highestUtilization: Double? {
-        [claudeViewModel.state, codexViewModel.state].compactMap { state in
-            guard case .loaded(let limits) = state else { return nil }
-            return limits.fiveHour.utilization
-        }.max()
-    }
-
-    private var isLoading: Bool {
-        [claudeViewModel.state, codexViewModel.state].contains { state in
-            if case .loading = state { return true }
-            return false
-        }
+    private var isLoaded: Bool {
+        if case .loaded = state { return true }
+        return false
     }
 }
 
