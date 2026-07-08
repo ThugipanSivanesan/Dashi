@@ -5,7 +5,7 @@
 # this file into your tap's `Casks/` directory. The cask installs the notarized (or ad-hoc) .zip
 # produced by Scripts/make-zip.sh. See RELEASING.md.
 cask "dashi" do
-  version "0.3.0"
+  version "0.3.1"
   sha256 "REPLACE_WITH_ZIP_SHA256" # shasum -a 256 dist/Dashi-#{version}.zip
 
   url "https://github.com/ThugipanSivanesan/Dashi/releases/download/v#{version}/Dashi-#{version}.zip"
