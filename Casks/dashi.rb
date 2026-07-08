@@ -5,7 +5,7 @@
 # this file into your tap's `Casks/` directory. The cask installs the notarized (or ad-hoc) .zip
 # produced by Scripts/make-zip.sh. See RELEASING.md.
 cask "dashi" do
-  version "0.2.0"
+  version "0.3.0"
   sha256 "REPLACE_WITH_ZIP_SHA256" # shasum -a 256 dist/Dashi-#{version}.zip
 
   url "https://github.com/ThugipanSivanesan/Dashi/releases/download/v#{version}/Dashi-#{version}.zip"
@@ -13,8 +13,11 @@ cask "dashi" do
   desc "Menu-bar gauge for Claude and Codex subscription usage"
   homepage "https://github.com/ThugipanSivanesan/Dashi"
 
-  # Sparkle powers in-app updates once configured; use auto_updates so Homebrew defers to it.
-  auto_updates true
+  # Keep this false while builds are unsigned and Sparkle in-app updates are not
+  # yet configured: it lets `brew upgrade` pick up new versions from this tap.
+  # Flip to true once the app is notarized and Sparkle (SUPublicEDKey) is live,
+  # so Homebrew defers self-updates to Sparkle.
+  auto_updates false
   depends_on macos: ">= :sonoma"
 
   app "Dashi.app"

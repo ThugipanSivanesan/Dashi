@@ -11,7 +11,7 @@ provider you're closest to your limit on.
 
 Requires **macOS 14 or later**.
 
-1. Download **`Dashi-0.2.0.dmg`** from the
+1. Download **`Dashi-0.3.0.dmg`** from the
    [latest release](https://github.com/ThugipanSivanesan/Dashi/releases/latest).
 2. Open the `.dmg` and drag **Dashi** into **Applications**.
 3. **First launch:** Dashi is an unsigned community build (not Apple-notarized), so macOS Gatekeeper
@@ -30,8 +30,26 @@ Sparkle) — see [RELEASING.md](RELEASING.md).
 **Verify your download** (optional, recommended) against the published checksum:
 
 ```sh
-shasum -a 256 -c Dashi-0.2.0.dmg.sha256
+shasum -a 256 -c Dashi-0.3.0.dmg.sha256
 ```
+
+### Install & update with Homebrew
+
+Prefer Homebrew? Install from the tap:
+
+```sh
+brew tap ThugipanSivanesan/tap
+brew install --cask dashi
+```
+
+Then upgrade to future releases with:
+
+```sh
+brew upgrade --cask dashi
+```
+
+(These are still unsigned community builds, so the first launch is Gatekeeper-blocked — clear the
+quarantine as shown above if macOS refuses to open it.)
 
 ## For AI assistants (LLMs)
 
@@ -47,9 +65,9 @@ Install the Dashi macOS menu-bar app from its GitHub release. Do this on my Mac:
 2. Make sure the GitHub CLI is installed and authenticated — run `gh auth status`
    (if `gh` is missing, install it with `brew install gh` and have me run `gh auth login`).
 3. Download the release DMG:
-   gh release download v0.2.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
+   gh release download v0.3.0 --repo ThugipanSivanesan/Dashi --pattern 'Dashi-*.dmg' --dir /tmp --clobber
 4. Mount it, copy Dashi.app into /Applications, then unmount:
-   MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.2.0.dmg | awk -F'\t' 'END{print $NF}')"
+   MNT="$(hdiutil attach -nobrowse -readonly /tmp/Dashi-0.3.0.dmg | awk -F'\t' 'END{print $NF}')"
    cp -R "$MNT/Dashi.app" /Applications/
    hdiutil detach "$MNT"
 5. It's an unsigned build, so clear the Gatekeeper quarantine so it will launch:
