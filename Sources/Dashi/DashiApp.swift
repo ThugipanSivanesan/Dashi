@@ -35,13 +35,10 @@ struct DashiApp: App {
             LimitMenuBarLabel(
                 claudeViewModel: claudeViewModel, codexViewModel: codexViewModel
             )
-            .task {
-                while !Task.isCancelled {
-                    await claudeViewModel.load()
-                    await codexViewModel.load()
-                    try? await Task.sleep(for: .seconds(pollInterval))
-                }
-            }
+            // Each provider polls on its own task so one hitting a rate limit backs off
+            // independently instead of dragging the other's cadence with it.
+            .task { await claudeViewModel.poll(interval: pollInterval) }
+            .task { await codexViewModel.poll(interval: pollInterval) }
         }
         .menuBarExtraStyle(.window)
     }
