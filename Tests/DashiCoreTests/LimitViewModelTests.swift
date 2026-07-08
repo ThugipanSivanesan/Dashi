@@ -28,6 +28,25 @@ private actor SequenceLimitProvider: LimitProvider {
     }
 }
 
+/// Like ``SequenceLimitProvider`` but counts calls, so throttle tests can assert a fetch was
+/// (or wasn't) actually made. Accessed only from the `@MainActor` tests.
+private final class CountingLimitProvider: LimitProvider, @unchecked Sendable {
+    private let results: [Result<SubscriptionLimits, LimitError>]
+    private(set) var calls = 0
+    init(_ results: [Result<SubscriptionLimits, LimitError>]) { self.results = results }
+    func currentLimits() async throws -> SubscriptionLimits {
+        defer { calls += 1 }
+        return try results[Swift.min(calls, results.count - 1)].get()
+    }
+}
+
+/// A hand-cranked clock so tests can advance wall-clock time and exercise the backoff window
+/// without sleeping.
+private final class MutableClock {
+    var now: Date
+    init(_ start: Date = Date(timeIntervalSince1970: 0)) { self.now = start }
+}
+
 @MainActor
 final class LimitViewModelTests: XCTestCase {
     private func limits() -> SubscriptionLimits {
@@ -83,21 +102,28 @@ final class LimitViewModelTests: XCTestCase {
         XCTAssertEqual(terminal, .terminal)
     }
 
-    func testRateLimitedWithoutPriorDataSurfacesError() async {
+    func testRateLimitedWithoutPriorDataStaysOnSpinner() async {
+        // A 429 before we've ever loaded shows the spinner (still trying), not a hard error — this
+        // is what kept the Codex gauge readable instead of flashing an error on a cold rate limit.
         let viewModel = consented(.failure(.rateLimited(retryAfter: nil)))
         await viewModel.load()
-        XCTAssertEqual(viewModel.state, .failed("Rate limited — retrying soon"))
+        XCTAssertEqual(viewModel.state, .loading)
     }
 
     func testKeepsLastGoodReadingThroughRateLimit() async {
+        let clock = MutableClock()
         let viewModel = LimitViewModel(
             provider: SequenceLimitProvider([
                 .success(limits()),
                 .failure(.rateLimited(retryAfter: 60)),
             ]),
-            consent: InMemoryConsentStore(true))
+            consent: InMemoryConsentStore(true),
+            pollInterval: 600,
+            now: { clock.now })
         await viewModel.load()
         XCTAssertEqual(viewModel.state, .loaded(limits()))
+        // Step past the poll window so the next load actually fetches (rather than throttling).
+        clock.now = clock.now.addingTimeInterval(3600)
         // A 429 on the next poll must not wipe the gauge — it stays on the last good reading.
         let outcome = await viewModel.load()
         XCTAssertEqual(outcome, .rateLimited(retryAfter: 60))
@@ -105,15 +131,69 @@ final class LimitViewModelTests: XCTestCase {
     }
 
     func testKeepsLastGoodReadingThroughTransientFailure() async {
+        let clock = MutableClock()
         let viewModel = LimitViewModel(
             provider: SequenceLimitProvider([
                 .success(limits()),
                 .failure(.requestFailed("network down")),
             ]),
-            consent: InMemoryConsentStore(true))
+            consent: InMemoryConsentStore(true),
+            pollInterval: 600,
+            now: { clock.now })
         await viewModel.load()
+        clock.now = clock.now.addingTimeInterval(3600)
         await viewModel.load()
         XCTAssertEqual(viewModel.state, .loaded(limits()))
+    }
+
+    func testThrottleSkipsFetchInsideBackoffWindow() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([.success(limits())])
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, now: { clock.now })
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 1)
+        // A menu-open inside the window must not fire another request — that was the 429 leak.
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 1)
+        // Once the window elapses, the next load fetches again.
+        clock.now = clock.now.addingTimeInterval(700)
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testForceBypassesSoftBackoffButNotRateLimit() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([.success(limits()), .success(limits())])
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, now: { clock.now })
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 1)
+        // Manual refresh may fetch early through our *voluntary* spacing (no rate limit in play).
+        await viewModel.load(force: true)
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testForceRefreshHonorsKnownRateLimit() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([
+            .failure(.rateLimited(retryAfter: 300)),
+            .success(limits()),
+        ])
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, now: { clock.now })
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 1)
+        // Even a forced refresh can't hammer us back into a 429 before Retry-After elapses.
+        await viewModel.load(force: true)
+        XCTAssertEqual(provider.calls, 1)
+        // Past the server's Retry-After, a forced refresh is allowed through.
+        clock.now = clock.now.addingTimeInterval(400)
+        await viewModel.load(force: true)
+        XCTAssertEqual(provider.calls, 2)
     }
 
     func testStartsNeedingConsentWhenNotGranted() {

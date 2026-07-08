@@ -104,8 +104,8 @@ struct LimitView: View {
             Spacer()
             Button {
                 Task {
-                    await claudeViewModel.load()
-                    await codexViewModel.load()
+                    await claudeViewModel.load(force: true)
+                    await codexViewModel.load(force: true)
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")

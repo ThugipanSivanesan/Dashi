@@ -11,17 +11,17 @@ struct DashiApp: App {
     @State private var codexViewModel: LimitViewModel
     @StateObject private var updater = Updater()
     private let sharedConsent: UserDefaultsConsentStore
-    private let pollInterval = Settings.fromEnvironment().pollInterval
 
     init() {
         let consent = UserDefaultsConsentStore()
         sharedConsent = consent
+        let interval = Settings.fromEnvironment().pollInterval
         _claudeViewModel = State(
             initialValue: LimitViewModel(
-                provider: ClaudeSubscriptionProvider(), consent: consent))
+                provider: ClaudeSubscriptionProvider(), consent: consent, pollInterval: interval))
         _codexViewModel = State(
             initialValue: LimitViewModel(
-                provider: CodexSubscriptionProvider(), consent: consent))
+                provider: CodexSubscriptionProvider(), consent: consent, pollInterval: interval))
     }
 
     var body: some Scene {
@@ -37,8 +37,8 @@ struct DashiApp: App {
             )
             // Each provider polls on its own task so one hitting a rate limit backs off
             // independently instead of dragging the other's cadence with it.
-            .task { await claudeViewModel.poll(interval: pollInterval) }
-            .task { await codexViewModel.poll(interval: pollInterval) }
+            .task { await claudeViewModel.poll() }
+            .task { await codexViewModel.poll() }
         }
         .menuBarExtraStyle(.window)
     }
