@@ -16,6 +16,18 @@ private struct UnusedLimitProvider: LimitProvider {
     }
 }
 
+/// Returns a different result on each call so tests can drive success-then-failure sequences.
+/// The last element repeats once exhausted.
+private actor SequenceLimitProvider: LimitProvider {
+    private let results: [Result<SubscriptionLimits, LimitError>]
+    private var index = 0
+    init(_ results: [Result<SubscriptionLimits, LimitError>]) { self.results = results }
+    func currentLimits() async throws -> SubscriptionLimits {
+        defer { index = Swift.min(index + 1, results.count - 1) }
+        return try results[index].get()
+    }
+}
+
 @MainActor
 final class LimitViewModelTests: XCTestCase {
     private func limits() -> SubscriptionLimits {
@@ -53,6 +65,55 @@ final class LimitViewModelTests: XCTestCase {
         let viewModel = consented(.failure(.requestFailed("nope")))
         await viewModel.load()
         XCTAssertEqual(viewModel.state, .failed("nope"))
+    }
+
+    func testLoadReturnsOutcome() async {
+        // Bind each awaited outcome to a local first: `await` can't appear inside XCTAssertEqual's
+        // autoclosure argument.
+        let success = await consented(.success(limits())).load()
+        XCTAssertEqual(success, .success)
+
+        let limited = await consented(.failure(.rateLimited(retryAfter: 90))).load()
+        XCTAssertEqual(limited, .rateLimited(retryAfter: 90))
+
+        let transient = await consented(.failure(.requestFailed("boom"))).load()
+        XCTAssertEqual(transient, .transientFailure)
+
+        let terminal = await consented(.failure(.notSignedIn)).load()
+        XCTAssertEqual(terminal, .terminal)
+    }
+
+    func testRateLimitedWithoutPriorDataSurfacesError() async {
+        let viewModel = consented(.failure(.rateLimited(retryAfter: nil)))
+        await viewModel.load()
+        XCTAssertEqual(viewModel.state, .failed("Rate limited — retrying soon"))
+    }
+
+    func testKeepsLastGoodReadingThroughRateLimit() async {
+        let viewModel = LimitViewModel(
+            provider: SequenceLimitProvider([
+                .success(limits()),
+                .failure(.rateLimited(retryAfter: 60)),
+            ]),
+            consent: InMemoryConsentStore(true))
+        await viewModel.load()
+        XCTAssertEqual(viewModel.state, .loaded(limits()))
+        // A 429 on the next poll must not wipe the gauge — it stays on the last good reading.
+        let outcome = await viewModel.load()
+        XCTAssertEqual(outcome, .rateLimited(retryAfter: 60))
+        XCTAssertEqual(viewModel.state, .loaded(limits()))
+    }
+
+    func testKeepsLastGoodReadingThroughTransientFailure() async {
+        let viewModel = LimitViewModel(
+            provider: SequenceLimitProvider([
+                .success(limits()),
+                .failure(.requestFailed("network down")),
+            ]),
+            consent: InMemoryConsentStore(true))
+        await viewModel.load()
+        await viewModel.load()
+        XCTAssertEqual(viewModel.state, .loaded(limits()))
     }
 
     func testStartsNeedingConsentWhenNotGranted() {

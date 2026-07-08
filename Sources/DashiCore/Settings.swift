@@ -13,9 +13,12 @@ public enum ProviderMode: String, Sendable, CaseIterable {
 /// keys are read from the Keychain at the point of use (see ``KeychainStore``).
 public struct Settings: Sendable, Equatable {
     public var providerMode: ProviderMode
+    /// Seconds between usage polls. The rolling windows move slowly, so this defaults to a relaxed
+    /// cadence to stay well clear of the endpoint's rate limit; the scheduler adds jitter and backs
+    /// off further on 429s (see ``PollBackoff``). Override with `DASHI_POLL_INTERVAL`.
     public var pollInterval: TimeInterval
 
-    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 300) {
+    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 600) {
         self.providerMode = providerMode
         self.pollInterval = max(1, pollInterval)
     }

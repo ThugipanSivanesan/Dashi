@@ -71,6 +71,8 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
             return try Self.decodeUsage(data, fetchedAt: now())
         case 401, 403:
             throw LimitError.needsReauth
+        case 429:
+            throw LimitError.rateLimited(retryAfter: parseRetryAfter(response, now: now()))
         default:
             throw LimitError.requestFailed("HTTP \(response.statusCode)")
         }

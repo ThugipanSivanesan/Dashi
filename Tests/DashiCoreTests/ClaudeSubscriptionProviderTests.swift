@@ -5,11 +5,13 @@ import XCTest
 final class ClaudeSubscriptionProviderTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_000_000)
 
-    private func http(_ status: Int, body: String = "") -> HTTPTransport {
+    private func http(
+        _ status: Int, body: String = "", headers: [String: String]? = nil
+    ) -> HTTPTransport {
         { _ in
             let response = HTTPURLResponse(
                 url: URL(string: "https://api.anthropic.com/api/oauth/usage")!,
-                statusCode: status, httpVersion: nil, headerFields: nil)!
+                statusCode: status, httpVersion: nil, headerFields: headers)!
             return (Data(body.utf8), response)
         }
     }
@@ -74,6 +76,21 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
         await assertThrows(provider) {
             guard case .requestFailed = $0 else { return XCTFail("expected requestFailed") }
         }
+    }
+
+    func testRateLimitedOn429WithRetryAfter() async {
+        let token = ClaudeOAuthToken(accessToken: Secret("t"), expiresAt: nil)
+        let provider = provider(
+            credentials: StubCredentialsReader(token: token),
+            transport: http(429, headers: ["Retry-After": "120"]))
+        await assertThrows(provider) { XCTAssertEqual($0, .rateLimited(retryAfter: 120)) }
+    }
+
+    func testRateLimitedOn429WithoutRetryAfter() async {
+        let token = ClaudeOAuthToken(accessToken: Secret("t"), expiresAt: nil)
+        let provider = provider(
+            credentials: StubCredentialsReader(token: token), transport: http(429))
+        await assertThrows(provider) { XCTAssertEqual($0, .rateLimited(retryAfter: nil)) }
     }
 
     func testSuccessReturnsLimits() async throws {

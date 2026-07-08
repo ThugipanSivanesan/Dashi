@@ -18,6 +18,12 @@ public final class LimitViewModel {
     public private(set) var state: LimitState
     @ObservationIgnored private let provider: any LimitProvider
     @ObservationIgnored private let consent: any ConsentStore
+    /// Most recent successful reading. Kept so a transient failure or a rate-limit backoff shows
+    /// stale-but-valid data instead of flashing an error.
+    @ObservationIgnored private var lastLoaded: SubscriptionLimits?
+    /// Guards against overlapping loads (poll loop + a menu-open or manual refresh firing at once),
+    /// which would waste a request and risk tripping the very rate limit we're avoiding.
+    @ObservationIgnored private var isLoading = false
 
     public init(
         provider: any LimitProvider,
@@ -37,24 +43,68 @@ public final class LimitViewModel {
         await load()
     }
 
+    /// Polls ``load()`` until the surrounding task is cancelled, spacing requests with
+    /// ``PollBackoff`` (honors the server's `Retry-After`, backs off on repeated failures, adds
+    /// jitter). `interval` is the normal cadence between successful polls.
     @MainActor
-    public func load() async {
+    public func poll(interval: TimeInterval) async {
+        var backoff = PollBackoff(baseInterval: interval)
+        while !Task.isCancelled {
+            let outcome = await load()
+            do {
+                try await Task.sleep(for: .seconds(backoff.nextDelay(after: outcome)))
+            } catch {
+                return  // cancelled
+            }
+        }
+    }
+
+    /// Fetches the current limits and maps the result into a renderable ``state``. Returns the
+    /// ``PollOutcome`` so a caller like ``poll(interval:)`` can decide how long to wait next.
+    @MainActor
+    @discardableResult
+    public func load() async -> PollOutcome {
         // Fail closed: never touch the Claude Code token until the user has consented.
         guard consent.hasConsented() else {
             state = .needsConsent
-            return
+            return .terminal
         }
+        // Coalesce overlapping loads: a second caller just reuses whatever the in-flight one produces.
+        guard !isLoading else { return .success }
+        isLoading = true
+        defer { isLoading = false }
+
         do {
             let limits = try await provider.currentLimits()
+            lastLoaded = limits
             state = .loaded(limits)
+            return .success
         } catch LimitError.notSignedIn {
             state = .notSignedIn
+            return .terminal
         } catch LimitError.needsReauth {
             state = .needsReauth
+            return .terminal
+        } catch LimitError.rateLimited(let retryAfter) {
+            showStaleOrError("Rate limited — retrying soon")
+            return .rateLimited(retryAfter: retryAfter)
         } catch LimitError.requestFailed(let message) {
-            state = .failed(message)
+            showStaleOrError(message)
+            return .transientFailure
         } catch {
-            state = .failed("Couldn't load usage")
+            showStaleOrError("Couldn't load usage")
+            return .transientFailure
+        }
+    }
+
+    /// Prefers the last good reading over an error flash; only surfaces the error when we've never
+    /// managed a successful load.
+    @MainActor
+    private func showStaleOrError(_ message: String) {
+        if let lastLoaded {
+            state = .loaded(lastLoaded)
+        } else {
+            state = .failed(message)
         }
     }
 }

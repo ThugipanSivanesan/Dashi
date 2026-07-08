@@ -32,6 +32,9 @@ public enum LimitError: Error, Equatable {
     case notSignedIn
     /// The token was rejected (expired/revoked) — the user must re-authenticate in Claude Code.
     case needsReauth
+    /// The usage endpoint returned HTTP 429. `retryAfter` is the server's `Retry-After` value in
+    /// seconds when it provided one, so the caller can wait at least that long before retrying.
+    case rateLimited(retryAfter: TimeInterval?)
     case requestFailed(String)
 }
 
