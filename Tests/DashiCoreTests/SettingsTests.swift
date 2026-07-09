@@ -6,7 +6,7 @@ final class SettingsTests: XCTestCase {
     func testDefaultsAreOfflineAndSafe() {
         let settings = Settings()
         XCTAssertEqual(settings.providerMode, .offline)
-        XCTAssertEqual(settings.pollInterval, 600)
+        XCTAssertEqual(settings.pollInterval, 90)
     }
 
     func testPollIntervalIsClampedToPositive() {
@@ -28,6 +28,6 @@ final class SettingsTests: XCTestCase {
             "DASHI_POLL_INTERVAL": "abc",
         ])
         XCTAssertEqual(settings.providerMode, .offline)
-        XCTAssertEqual(settings.pollInterval, 600)
+        XCTAssertEqual(settings.pollInterval, 90)
     }
 }

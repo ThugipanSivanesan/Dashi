@@ -42,7 +42,7 @@ public final class LimitViewModel {
     public init(
         provider: any LimitProvider,
         consent: any ConsentStore = UserDefaultsConsentStore(),
-        pollInterval: TimeInterval = 600,
+        pollInterval: TimeInterval = 90,
         now: @escaping () -> Date = Date.init
     ) {
         self.provider = provider

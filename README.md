@@ -85,6 +85,25 @@ To build from source instead, see [Development](#development) (`bash Scripts/mak
   read from the local Claude Code / Codex CLI OAuth token (personal use — see [Privacy](#privacy)).
 - **Roadmap:** refresh/threshold alerts, and a multi-provider Admin-API usage/cost dashboard.
 
+## Why the percentage can differ from `/usage`
+
+Dashi reads the **same** number as Claude Code's `/usage` — the identical
+`api.anthropic.com/api/oauth/usage` endpoint, using the server's already-computed
+`utilization` value with no math of its own. If the two ever disagree, it's not a
+different calculation — it's one of two things:
+
+- **Dashi's reading is a little stale.** To stay well under the providers' rate
+  limits, Dashi refreshes on an interval (and backs off further after a `429`),
+  meanwhile showing the last good reading rather than flashing an error. Because
+  the 5-hour and weekly windows are **rolling**, older usage keeps aging out, so
+  the live number drifts down between refreshes — which can leave Dashi a few
+  points *higher* than a `/usage` you just ran. It re-syncs on the next fetch;
+  open the popup to pull a fresh reading.
+- **You're comparing different windows.** The menu-bar number is always the
+  **5-hour** window. `/usage` prints both the 5-hour *and* the weekly limit, so
+  make sure you're comparing like for like — the Dashi popup shows both windows
+  side by side.
+
 ## Architecture
 
 | Target       | Role                                                                          |
