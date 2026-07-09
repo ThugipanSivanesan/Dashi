@@ -18,7 +18,7 @@ public struct Settings: Sendable, Equatable {
     /// ``PollBackoff``) so a brisk cadence can't hammer the endpoint. Override with `DASHI_POLL_INTERVAL`.
     public var pollInterval: TimeInterval
 
-    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 120) {
+    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 90) {
         self.providerMode = providerMode
         self.pollInterval = max(1, pollInterval)
     }
