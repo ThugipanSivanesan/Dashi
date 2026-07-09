@@ -92,9 +92,13 @@ struct LimitView: View {
         }
         .padding(14)
         .frame(width: 300)
+        // Force a fresh fetch every time the popup opens so the number you're looking at is live,
+        // not a cached reading up to a poll-interval old. This bypasses only the *voluntary* backoff
+        // window; a real rate limit (429) is still honored, so it can't re-trip the limit. The
+        // background poll stays at its gentle cadence — we only spend an extra request when you look.
         .task {
-            await claudeViewModel.load()
-            await codexViewModel.load()
+            await claudeViewModel.load(force: true)
+            await codexViewModel.load(force: true)
         }
     }
 
