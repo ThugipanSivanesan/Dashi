@@ -13,12 +13,14 @@ public enum ProviderMode: String, Sendable, CaseIterable {
 /// keys are read from the Keychain at the point of use (see ``KeychainStore``).
 public struct Settings: Sendable, Equatable {
     public var providerMode: ProviderMode
-    /// Seconds between usage polls. Kept short enough that the gauge feels live, while the scheduler
-    /// adds jitter and backs off automatically on 429s (honoring the server's `Retry-After`, see
-    /// ``PollBackoff``) so a brisk cadence can't hammer the endpoint. Override with `DASHI_POLL_INTERVAL`.
+    /// Seconds between usage polls. The unofficial usage endpoint rate-limits per-account hard, so a
+    /// gentle cadence keeps us well clear of its 429s — an over-eager poll ironically freezes the gauge
+    /// *longer* (stuck on stale data during backoff) than a calm one. A popup-open still refreshes past
+    /// this for a near-live number, and the scheduler adds jitter and honors the server's `Retry-After`
+    /// (see ``PollBackoff``). Override with `DASHI_POLL_INTERVAL`.
     public var pollInterval: TimeInterval
 
-    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 90) {
+    public init(providerMode: ProviderMode = .offline, pollInterval: TimeInterval = 300) {
         self.providerMode = providerMode
         self.pollInterval = max(1, pollInterval)
     }

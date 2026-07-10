@@ -191,6 +191,15 @@ private struct LimitSection: View {
             Text("Updated \(limits.fetchedAt.formatted(date: .omitted, time: .shortened))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            if viewModel.isRateLimited {
+                Label(
+                    "Rate-limited — showing last reading, retrying",
+                    systemImage: "clock.arrow.circlepath"
+                )
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
