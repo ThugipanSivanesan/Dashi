@@ -163,7 +163,7 @@ final class LimitViewModelTests: XCTestCase {
         XCTAssertEqual(provider.calls, 2)
     }
 
-    func testForceBypassesSoftBackoffButNotRateLimit() async {
+    func testManualRefreshBypassesVoluntarySpacing() async {
         let clock = MutableClock()
         let provider = CountingLimitProvider([.success(limits()), .success(limits())])
         let viewModel = LimitViewModel(
@@ -172,11 +172,79 @@ final class LimitViewModelTests: XCTestCase {
         await viewModel.load()
         XCTAssertEqual(provider.calls, 1)
         // Manual refresh may fetch early through our *voluntary* spacing (no rate limit in play).
-        await viewModel.load(force: true)
+        await viewModel.load(reason: .manual)
         XCTAssertEqual(provider.calls, 2)
     }
 
-    func testForceRefreshHonorsKnownRateLimit() async {
+    func testManualRefreshHonorsRateLimitWithinCap() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([
+            .failure(.rateLimited(retryAfter: 300)),
+            .success(limits()),
+        ])
+        // Cap above the server's ask, so the manual button defers to the full Retry-After here.
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, manualRateLimitCap: 600, now: { clock.now })
+        await viewModel.load()
+        XCTAssertEqual(provider.calls, 1)
+        // A manual refresh can't hammer us back into a 429 before Retry-After elapses.
+        await viewModel.load(reason: .manual)
+        XCTAssertEqual(provider.calls, 1)
+        // Past the server's Retry-After, a manual refresh is allowed through.
+        clock.now = clock.now.addingTimeInterval(400)
+        await viewModel.load(reason: .manual)
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testManualRefreshEscapesLongRateLimitAfterCap() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([
+            .failure(.rateLimited(retryAfter: 600)),
+            .success(limits()),
+        ])
+        // Server asks for a long 600s backoff; the manual button escapes after the 60s cap.
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, manualRateLimitCap: 60, now: { clock.now })
+        await viewModel.load()  // trips the rate limit
+        XCTAssertEqual(provider.calls, 1)
+        // Within the cap, a manual refresh still defers.
+        clock.now = clock.now.addingTimeInterval(30)
+        await viewModel.load(reason: .manual)
+        XCTAssertEqual(provider.calls, 1)
+        // Now 70s in: past the cap, before Retry-After.
+        clock.now = clock.now.addingTimeInterval(40)
+        // The background poll still honors the *full* server Retry-After...
+        await viewModel.load(reason: .scheduled)
+        XCTAssertEqual(provider.calls, 1)
+        // ...but the manual button is never a dead end — it's allowed through once the cap elapses.
+        await viewModel.load(reason: .manual)
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testPopupOpenRefreshesPastVoluntarySpacingButCoalescesReopens() async {
+        let clock = MutableClock()
+        let provider = CountingLimitProvider([.success(limits())])
+        let viewModel = LimitViewModel(
+            provider: provider, consent: InMemoryConsentStore(true),
+            pollInterval: 600, popupMinInterval: 20, now: { clock.now })
+        await viewModel.load(reason: .popupOpened)
+        XCTAssertEqual(provider.calls, 1)
+        // A rapid re-open inside the floor coalesces — no burst of requests.
+        clock.now = clock.now.addingTimeInterval(10)
+        await viewModel.load(reason: .popupOpened)
+        XCTAssertEqual(provider.calls, 1)
+        clock.now = clock.now.addingTimeInterval(15)  // now 25s: past the 20s floor
+        // The background poll is still inside its 600s voluntary window, so it wouldn't fetch...
+        await viewModel.load(reason: .scheduled)
+        XCTAssertEqual(provider.calls, 1)
+        // ...but a popup-open bypasses that voluntary spacing to show a near-live number.
+        await viewModel.load(reason: .popupOpened)
+        XCTAssertEqual(provider.calls, 2)
+    }
+
+    func testPopupOpenHonorsRealRateLimit() async {
         let clock = MutableClock()
         let provider = CountingLimitProvider([
             .failure(.rateLimited(retryAfter: 300)),
@@ -184,15 +252,17 @@ final class LimitViewModelTests: XCTestCase {
         ])
         let viewModel = LimitViewModel(
             provider: provider, consent: InMemoryConsentStore(true),
-            pollInterval: 600, now: { clock.now })
-        await viewModel.load()
+            pollInterval: 600, popupMinInterval: 20, now: { clock.now })
+        await viewModel.load(reason: .popupOpened)  // trips the rate limit
         XCTAssertEqual(provider.calls, 1)
-        // Even a forced refresh can't hammer us back into a 429 before Retry-After elapses.
-        await viewModel.load(force: true)
+        // Past the popup floor but inside the 429 window: a popup-open must not hammer the limit.
+        clock.now = clock.now.addingTimeInterval(25)
+        await viewModel.load(reason: .popupOpened)
         XCTAssertEqual(provider.calls, 1)
-        // Past the server's Retry-After, a forced refresh is allowed through.
+        // Once the server's Retry-After elapses, a popup-open fetches again. Step well past the
+        // 300s ask so the backoff's one-sided jitter (up to +10%) can't leave us still blocked.
         clock.now = clock.now.addingTimeInterval(400)
-        await viewModel.load(force: true)
+        await viewModel.load(reason: .popupOpened)
         XCTAssertEqual(provider.calls, 2)
     }
 
