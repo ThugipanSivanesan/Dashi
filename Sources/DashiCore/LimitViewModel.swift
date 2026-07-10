@@ -28,6 +28,10 @@ public enum FetchReason: Sendable {
 @Observable
 public final class LimitViewModel {
     public private(set) var state: LimitState
+    /// Observed by the view: `true` while the server is actively rate-limiting us (last fetch was a
+    /// 429), so the UI can say "showing last reading, retrying" instead of looking silently frozen.
+    /// Flips back to `false` on the first non-429 outcome.
+    public private(set) var isRateLimited = false
     @ObservationIgnored private let provider: any LimitProvider
     @ObservationIgnored private let consent: any ConsentStore
     @ObservationIgnored private let now: () -> Date
@@ -66,8 +70,8 @@ public final class LimitViewModel {
     public init(
         provider: any LimitProvider,
         consent: any ConsentStore = UserDefaultsConsentStore(),
-        pollInterval: TimeInterval = 90,
-        popupMinInterval: TimeInterval = 20,
+        pollInterval: TimeInterval = 300,
+        popupMinInterval: TimeInterval = 60,
         manualRateLimitCap: TimeInterval = 60,
         now: @escaping () -> Date = Date.init
     ) {
@@ -140,9 +144,11 @@ public final class LimitViewModel {
         if case .rateLimited = outcome {
             rateLimitedUntil = deadline
             rateLimitedAt = now()
+            isRateLimited = true
         } else {
             rateLimitedUntil = nil
             rateLimitedAt = nil
+            isRateLimited = false
         }
         return outcome
     }

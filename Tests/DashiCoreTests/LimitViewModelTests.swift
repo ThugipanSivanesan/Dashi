@@ -110,6 +110,26 @@ final class LimitViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .loading)
     }
 
+    func testIsRateLimitedReflectsServer429ThenClearsOnSuccess() async {
+        let clock = MutableClock()
+        let viewModel = LimitViewModel(
+            provider: SequenceLimitProvider([
+                .failure(.rateLimited(retryAfter: 60)),
+                .success(limits()),
+            ]),
+            consent: InMemoryConsentStore(true),
+            pollInterval: 600,
+            now: { clock.now })
+        XCTAssertFalse(viewModel.isRateLimited)
+        // A 429 turns the flag on so the UI can say "rate-limited — retrying" instead of looking frozen.
+        await viewModel.load()
+        XCTAssertTrue(viewModel.isRateLimited)
+        // Step past the backoff window; the next clean fetch clears the flag.
+        clock.now = clock.now.addingTimeInterval(3600)
+        await viewModel.load()
+        XCTAssertFalse(viewModel.isRateLimited)
+    }
+
     func testKeepsLastGoodReadingThroughRateLimit() async {
         let clock = MutableClock()
         let viewModel = LimitViewModel(

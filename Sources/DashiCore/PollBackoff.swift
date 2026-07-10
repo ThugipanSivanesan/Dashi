@@ -24,7 +24,9 @@ public enum PollOutcome: Sendable, Equatable {
 public struct PollBackoff: Sendable {
     /// The normal cadence between successful polls.
     public let baseInterval: TimeInterval
-    /// Floor for any computed delay (also floors a tiny server `Retry-After`).
+    /// Floor for any computed delay. Also floors a tiny — or bogus — server `Retry-After`: the usage
+    /// endpoint has been observed returning `429` with `retry-after: 0` (retry immediately, yet still
+    /// rate-limited), which without a floor would spin us straight back into the limit.
     public let minInterval: TimeInterval
     /// Cap for our *own* exponential backoff. A server-directed `Retry-After` may exceed it —
     /// we always honor the server's ask so we don't poll back into the same limit.
@@ -36,7 +38,7 @@ public struct PollBackoff: Sendable {
 
     public init(
         baseInterval: TimeInterval,
-        minInterval: TimeInterval = 30,
+        minInterval: TimeInterval = 90,
         maxInterval: TimeInterval = 1800,
         jitterFraction: Double = 0.1
     ) {
