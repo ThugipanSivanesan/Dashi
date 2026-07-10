@@ -92,13 +92,13 @@ struct LimitView: View {
         }
         .padding(14)
         .frame(width: 300)
-        // Force a fresh fetch every time the popup opens so the number you're looking at is live,
-        // not a cached reading up to a poll-interval old. This bypasses only the *voluntary* backoff
-        // window; a real rate limit (429) is still honored, so it can't re-trip the limit. The
-        // background poll stays at its gentle cadence — we only spend an extra request when you look.
+        // Refresh past the voluntary poll spacing when the popup opens so the number you're looking
+        // at is near-live, not a cached reading up to a poll-interval old. Rapid re-opens coalesce
+        // (popupMinInterval) and a real rate limit is still honored, so opening the menu can't burst
+        // requests into a 429. The background poll stays at its gentle cadence.
         .task {
-            await claudeViewModel.load(force: true)
-            await codexViewModel.load(force: true)
+            await claudeViewModel.load(reason: .popupOpened)
+            await codexViewModel.load(reason: .popupOpened)
         }
     }
 
@@ -108,8 +108,8 @@ struct LimitView: View {
             Spacer()
             Button {
                 Task {
-                    await claudeViewModel.load(force: true)
-                    await codexViewModel.load(force: true)
+                    await claudeViewModel.load(reason: .manual)
+                    await codexViewModel.load(reason: .manual)
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")
