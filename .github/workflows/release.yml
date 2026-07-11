@@ -30,6 +30,12 @@ on:
 permissions:
   contents: read
 
+# Serialize releases so two tags pushed close together can't race through build/publish/tap. Never
+# cancel a release mid-flight — a half-done sign/notarize/publish/tap-bump is worse than waiting.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: macos-14
@@ -43,6 +49,11 @@ jobs:
         run: |
           newest="$(find /Applications -maxdepth 1 -type d -name 'Xcode_*.app' | sort -V | tail -1)"
           echo "DEVELOPER_DIR=${newest}/Contents/Developer" >> "$GITHUB_ENV"
+
+      # Never ship a tag whose tests don't pass. CI gates PRs, but a tag can point at any commit —
+      # including a merge that never ran CI — so re-run the suite here before building the release.
+      - name: Test
+        run: swift test
 
       # Pinned, checksum-verified packaging tools (replaces unpinned `brew install`) so a swapped or
       # tampered tool can't slip into the job that later handles signing secrets. XcodeGen publishes

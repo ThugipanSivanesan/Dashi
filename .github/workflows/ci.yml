@@ -17,15 +17,32 @@ concurrency:
 jobs:
   test:
     name: Lint & test
+    # The weekly cron exists to re-scan for newly-disclosed vulns (the Ubuntu jobs below). The macOS
+    # build+test (billed ~10x) adds no drift coverage there, so skip it on schedule.
+    if: github.event_name != 'schedule'
     runs-on: macos-latest # SwiftUI/AppKit require a macOS runner (billed ~10x — keep this job lean)
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      # Cache SwiftPM's build products so each PR doesn't rebuild Sparkle from scratch. The key pins
+      # the Swift toolchain hash — macos-latest floats to new Xcodes, and reusing a .build from an
+      # older toolchain triggers module-incompatibility errors — plus Package.resolved so a dependency
+      # bump starts clean. restore-keys warms an incremental build across dependency changes.
+      - name: Swift toolchain tag
+        id: swift
+        run: echo "tag=$(swift --version | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cache SwiftPM build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ runner.os }}-spm-${{ steps.swift.outputs.tag }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-${{ steps.swift.outputs.tag }}-
       - name: swift-format lint
         run: swift format lint --strict --recursive Sources Tests Package.swift
       - name: Build
         run: swift build
       - name: Test
-        run: swift test --enable-code-coverage
+        run: swift test
 
   gitleaks:
     name: Secret scan (gitleaks)
