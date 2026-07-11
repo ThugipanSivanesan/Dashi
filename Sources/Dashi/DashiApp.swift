@@ -9,6 +9,7 @@ struct DashiApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var claudeViewModel: LimitViewModel
     @State private var codexViewModel: LimitViewModel
+    @State private var dailyTokensViewModel: DailyTokensViewModel
     @StateObject private var updater = Updater()
     private let sharedConsent: UserDefaultsConsentStore
 
@@ -22,6 +23,7 @@ struct DashiApp: App {
         _codexViewModel = State(
             initialValue: LimitViewModel(
                 provider: CodexSubscriptionProvider(), consent: consent, pollInterval: interval))
+        _dailyTokensViewModel = State(initialValue: DailyTokensViewModel())
     }
 
     var body: some Scene {
@@ -29,6 +31,7 @@ struct DashiApp: App {
             LimitView(
                 claudeViewModel: claudeViewModel,
                 codexViewModel: codexViewModel,
+                dailyTokensViewModel: dailyTokensViewModel,
                 consent: sharedConsent,
                 updater: updater)
         } label: {

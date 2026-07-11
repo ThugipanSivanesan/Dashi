@@ -61,6 +61,7 @@ private struct ProviderMenuBarChip: View {
 struct LimitView: View {
     let claudeViewModel: LimitViewModel
     let codexViewModel: LimitViewModel
+    let dailyTokensViewModel: DailyTokensViewModel
     let consent: UserDefaultsConsentStore
     @ObservedObject var updater: Updater
 
@@ -80,6 +81,8 @@ struct LimitView: View {
                     viewModel: codexViewModel,
                     notSignedIn: "Open the Codex CLI (run `codex`) and log in to see your usage.",
                     needsReauth: "Your Codex session expired — run `codex` to re-authenticate.")
+                Divider()
+                DailyTokensSection(viewModel: dailyTokensViewModel)
             } else {
                 consentPrompt
             }
@@ -99,6 +102,7 @@ struct LimitView: View {
         .task {
             await claudeViewModel.load(reason: .popupOpened)
             await codexViewModel.load(reason: .popupOpened)
+            await dailyTokensViewModel.load()
         }
     }
 
@@ -110,6 +114,7 @@ struct LimitView: View {
                 Task {
                     await claudeViewModel.load(reason: .manual)
                     await codexViewModel.load(reason: .manual)
+                    await dailyTokensViewModel.load()
                 }
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -147,6 +152,39 @@ struct LimitView: View {
             .buttonStyle(.borderedProminent)
             .padding(.top, 2)
         }
+    }
+}
+
+/// Today's total token usage from local provider logs.
+private struct DailyTokensSection: View {
+    let viewModel: DailyTokensViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Today").font(.subheadline)
+            VStack(alignment: .leading, spacing: 8) {
+                tokenRow(title: "Claude", provider: viewModel.tokens?.claude)
+                tokenRow(title: "Codex", provider: viewModel.tokens?.codex)
+            }
+        }
+    }
+
+    private func tokenRow(title: String, provider: ProviderDailyTokens?) -> some View {
+        HStack {
+            Text(title)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(tokenText(for: provider))
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(provider == nil ? Color.secondary : Color.primary)
+        }
+    }
+
+    private func tokenText(for provider: ProviderDailyTokens?) -> String {
+        guard let provider else { return "—" }
+        return formatTokenCount(provider.total)
     }
 }
 
