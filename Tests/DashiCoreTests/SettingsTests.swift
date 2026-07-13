@@ -3,9 +3,8 @@ import XCTest
 @testable import DashiCore
 
 final class SettingsTests: XCTestCase {
-    func testDefaultsAreOfflineAndSafe() {
+    func testDefaultsAreSafe() {
         let settings = Settings()
-        XCTAssertEqual(settings.providerMode, .offline)
         XCTAssertEqual(settings.pollInterval, 300)
     }
 
@@ -15,19 +14,15 @@ final class SettingsTests: XCTestCase {
 
     func testFromEnvironmentParsesValidValues() {
         let settings = Settings.fromEnvironment([
-            "DASHI_PROVIDER_MODE": "anthropic",
-            "DASHI_POLL_INTERVAL": "60",
+            "DASHI_POLL_INTERVAL": "60"
         ])
-        XCTAssertEqual(settings.providerMode, .anthropic)
         XCTAssertEqual(settings.pollInterval, 60)
     }
 
     func testFromEnvironmentIgnoresInvalidValues() {
         let settings = Settings.fromEnvironment([
-            "DASHI_PROVIDER_MODE": "not-a-mode",
-            "DASHI_POLL_INTERVAL": "abc",
+            "DASHI_POLL_INTERVAL": "abc"
         ])
-        XCTAssertEqual(settings.providerMode, .offline)
         XCTAssertEqual(settings.pollInterval, 300)
     }
 }

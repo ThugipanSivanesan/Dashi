@@ -22,8 +22,8 @@ public enum CredentialsError: Error, Equatable {
     case keychain(OSStatus)
 }
 
-/// Reads the Claude Code OAuth token. Abstracted so tests use ``StubCredentialsReader`` and never
-/// touch the real Keychain — mirrors the ``SecretStore`` / ``InMemorySecretStore`` split.
+/// Reads the Claude Code OAuth token. Abstracted so tests use a stub reader and never touch the
+/// real on-disk credentials.
 public protocol ClaudeCredentialsReading: Sendable {
     /// Returns the current token, or `nil` if the user isn't signed in to Claude Code.
     func currentToken() throws -> ClaudeOAuthToken?
