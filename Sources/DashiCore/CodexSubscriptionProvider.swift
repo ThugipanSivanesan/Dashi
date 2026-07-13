@@ -8,7 +8,7 @@ import Foundation
 /// named `five_hour` / `seven_day` — those positions are not a fixed 5-hour/weekly assignment: a plan
 /// may surface only one window (e.g. Plus returns the weekly window as `primary_window` with
 /// `secondary_window` null). Each window's true horizon is carried by `limit_window_seconds`, which we
-/// route on to fill the same ``SubscriptionLimits`` shape as the Claude gauge, so both render identically.
+/// route on to fill the same ``SubscriptionLimits`` shape as the Claude gauge.
 ///
 /// Refresh note: Codex uses rotating refresh tokens, so refreshing would mean rewriting the CLI's
 /// `auth.json` — a mutation of another tool's credentials that can invalidate the CLI's own login if
@@ -94,7 +94,7 @@ public struct CodexSubscriptionProvider: LimitProvider {
     /// `used_percent`, an epoch-seconds `reset_at`, and a `limit_window_seconds` horizon — into
     /// ``SubscriptionLimits``. Windows are placed by their horizon, not their position: any window
     /// shorter than a day fills the 5-hour slot, a day or longer fills the weekly slot. Missing or
-    /// unclassifiable windows fail closed to 0% with no reset, like the Claude decoder.
+    /// unclassifiable windows are nil.
     static func decodeUsage(_ data: Data, fetchedAt: Date) throws -> SubscriptionLimits {
         struct Response: Decodable {
             let rateLimit: RateLimit?
@@ -117,8 +117,8 @@ public struct CodexSubscriptionProvider: LimitProvider {
             throw LimitError.requestFailed("decode: \(error.localizedDescription)")
         }
         // 5-hour ≈ 18000s, weekly ≈ 604800s; one day cleanly separates the two horizons. A window
-        // without `limit_window_seconds` can't be placed, so it's dropped (fail closed). First match
-        // wins per slot, so a duplicate horizon can't clobber an already-filled slot.
+        // without `limit_window_seconds` can't be placed, so it's dropped. First match wins per
+        // slot, so a duplicate horizon can't clobber an already-filled slot.
         let oneDay: Double = 24 * 3600
         var fiveHourWindow: Response.Window?
         var weeklyWindow: Response.Window?
@@ -130,10 +130,11 @@ public struct CodexSubscriptionProvider: LimitProvider {
                 weeklyWindow = weeklyWindow ?? window
             }
         }
-        func limit(_ window: Response.Window?) -> RollingLimit {
-            RollingLimit(
-                utilization: window?.usedPercent ?? 0,
-                resetsAt: window?.resetAt.map { Date(timeIntervalSince1970: $0) }
+        func limit(_ window: Response.Window?) -> RollingLimit? {
+            guard let window else { return nil }
+            return RollingLimit(
+                utilization: window.usedPercent ?? 0,
+                resetsAt: window.resetAt.map { Date(timeIntervalSince1970: $0) }
             )
         }
         return SubscriptionLimits(
