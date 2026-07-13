@@ -32,10 +32,12 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
              "seven_day":{"utilization":41.5,"resets_at":null}}
             """
         let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 73)
-        XCTAssertNotNil(limits.fiveHour.resetsAt)
-        XCTAssertEqual(limits.sevenDay.utilization, 41.5)
-        XCTAssertNil(limits.sevenDay.resetsAt)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 73)
+        XCTAssertNotNil(fiveHour.resetsAt)
+        XCTAssertEqual(sevenDay.utilization, 41.5)
+        XCTAssertNil(sevenDay.resetsAt)
         XCTAssertEqual(limits.fetchedAt, epoch)
     }
 
@@ -48,12 +50,14 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
              "resets_at":"2026-07-06T03:00:00.968681+00:00"},"member_dashboard_available":false}
             """
         let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 29)
-        let reset = try XCTUnwrap(limits.fiveHour.resetsAt)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 29)
+        let reset = try XCTUnwrap(fiveHour.resetsAt)
         let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-29T11:00:00Z"))
         XCTAssertEqual(reset.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 1.0)
-        XCTAssertEqual(limits.sevenDay.utilization, 3)
-        XCTAssertNotNil(limits.sevenDay.resetsAt)
+        XCTAssertEqual(sevenDay.utilization, 3)
+        XCTAssertNotNil(sevenDay.resetsAt)
     }
 
     func testNotSignedInWhenNoToken() async {
@@ -100,7 +104,8 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
         let provider = provider(
             credentials: StubCredentialsReader(token: token), transport: http(200, body: body))
         let limits = try await provider.currentLimits()
-        XCTAssertEqual(limits.fiveHour.utilization, 10)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        XCTAssertEqual(fiveHour.utilization, 10)
     }
 
     func testSendsBearerAndBetaHeaders() async throws {

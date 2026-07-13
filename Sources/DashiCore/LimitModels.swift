@@ -13,13 +13,14 @@ public struct RollingLimit: Sendable, Equatable {
     }
 }
 
-/// Snapshot of the Claude subscription's rolling limits, as returned by the OAuth usage endpoint.
+/// Snapshot of the subscription's rolling limits, as returned by a provider usage endpoint.
+/// A `nil` window means the provider did not report that window.
 public struct SubscriptionLimits: Sendable, Equatable {
-    public let fiveHour: RollingLimit
-    public let sevenDay: RollingLimit
+    public let fiveHour: RollingLimit?
+    public let sevenDay: RollingLimit?
     public let fetchedAt: Date
 
-    public init(fiveHour: RollingLimit, sevenDay: RollingLimit, fetchedAt: Date) {
+    public init(fiveHour: RollingLimit?, sevenDay: RollingLimit?, fetchedAt: Date) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.fetchedAt = fetchedAt

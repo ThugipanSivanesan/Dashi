@@ -36,47 +36,47 @@ final class CodexSubscriptionProviderTests: XCTestCase {
               "secondary_window":{"used_percent":12.5,"reset_at":1600000,"limit_window_seconds":604800}}}
             """
         let limits = try CodexSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 41)
-        XCTAssertEqual(limits.fiveHour.resetsAt, Date(timeIntervalSince1970: 1_000_900))
-        XCTAssertEqual(limits.sevenDay.utilization, 12.5)
-        XCTAssertEqual(limits.sevenDay.resetsAt, Date(timeIntervalSince1970: 1_600_000))
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 41)
+        XCTAssertEqual(fiveHour.resetsAt, Date(timeIntervalSince1970: 1_000_900))
+        XCTAssertEqual(sevenDay.utilization, 12.5)
+        XCTAssertEqual(sevenDay.resetsAt, Date(timeIntervalSince1970: 1_600_000))
         XCTAssertEqual(limits.fetchedAt, epoch)
     }
 
     func testDecodeUsageRoutesByHorizonNotPosition() throws {
         // The real Plus payload: the weekly window arrives as `primary_window` (604800s) and there is
         // no 5-hour window (`secondary_window` null). Weekly usage must land in the weekly slot — not
-        // the 5-hour slot — and the 5-hour slot fails closed to 0%.
+        // the 5-hour slot — and the unreported 5-hour slot is nil.
         let json = """
             {"plan_type":"plus","rate_limit":{
               "primary_window":{"used_percent":37,"reset_at":1784558103,"limit_window_seconds":604800},
               "secondary_window":null}}
             """
         let limits = try CodexSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 0)
-        XCTAssertNil(limits.fiveHour.resetsAt)
-        XCTAssertEqual(limits.sevenDay.utilization, 37)
-        XCTAssertEqual(limits.sevenDay.resetsAt, Date(timeIntervalSince1970: 1_784_558_103))
+        XCTAssertNil(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(sevenDay.utilization, 37)
+        XCTAssertEqual(sevenDay.resetsAt, Date(timeIntervalSince1970: 1_784_558_103))
     }
 
     func testDecodeUsageDropsWindowsWithoutHorizon() throws {
-        // A window with no `limit_window_seconds` can't be classified, so it fails closed to 0%.
+        // A window with no `limit_window_seconds` can't be classified, so it is dropped.
         let json = """
             {"rate_limit":{"primary_window":{"used_percent":55,"reset_at":1000900}}}
             """
         let limits = try CodexSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 0)
-        XCTAssertEqual(limits.sevenDay.utilization, 0)
+        XCTAssertNil(limits.fiveHour)
+        XCTAssertNil(limits.sevenDay)
     }
 
     func testDecodeUsageToleratesMissingWindows() throws {
-        // Absent rate_limit / windows fail closed to 0% with no reset, like the Claude decoder.
+        // Absent rate_limit / windows are reported as nil.
         let limits = try CodexSubscriptionProvider.decodeUsage(
             Data(#"{"plan_type":"free"}"#.utf8), fetchedAt: epoch)
-        XCTAssertEqual(limits.fiveHour.utilization, 0)
-        XCTAssertNil(limits.fiveHour.resetsAt)
-        XCTAssertEqual(limits.sevenDay.utilization, 0)
-        XCTAssertNil(limits.sevenDay.resetsAt)
+        XCTAssertNil(limits.fiveHour)
+        XCTAssertNil(limits.sevenDay)
     }
 
     func testNotSignedInWhenNoToken() async {
@@ -127,8 +127,10 @@ final class CodexSubscriptionProviderTests: XCTestCase {
             credentials: StubCodexCredentialsReader(token: token()),
             transport: http(200, body: body))
         let limits = try await provider.currentLimits()
-        XCTAssertEqual(limits.fiveHour.utilization, 10)
-        XCTAssertEqual(limits.sevenDay.utilization, 5)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 10)
+        XCTAssertEqual(sevenDay.utilization, 5)
     }
 
     func testSendsBearerUserAgentAndAccountHeaders() async throws {

@@ -2,7 +2,8 @@ import AppKit
 import DashiCore
 import SwiftUI
 
-/// Compact menu-bar readout for both providers' 5-hour utilization.
+/// Compact menu-bar readout for each provider's most immediate reported window.
+/// Shows 5-hour when present, otherwise weekly.
 struct LimitMenuBarLabel: View {
     let claudeViewModel: LimitViewModel
     let codexViewModel: LimitViewModel
@@ -43,7 +44,8 @@ private struct ProviderMenuBarChip: View {
     private var percentageText: String {
         switch state {
         case .loaded(let limits):
-            "\(Int(limits.fiveHour.utilization.rounded()))%"
+            (limits.fiveHour ?? limits.sevenDay)
+                .map { "\(Int($0.utilization.rounded()))%" } ?? "–"
         case .loading:
             "…"
         case .notSignedIn, .needsReauth, .needsConsent, .failed:
@@ -222,10 +224,22 @@ private struct LimitSection: View {
 
     private func limitsView(_ limits: SubscriptionLimits) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            windowRow(
-                title: "5-hour", limit: limits.fiveHour, prominent: true, liveCountdown: true)
-            windowRow(
-                title: "Weekly", limit: limits.sevenDay, prominent: false, liveCountdown: false)
+            if let five = limits.fiveHour {
+                windowRow(
+                    title: "5-hour", limit: five, prominent: true, liveCountdown: true)
+            }
+            if let week = limits.sevenDay {
+                windowRow(
+                    title: "Weekly",
+                    limit: week,
+                    prominent: limits.fiveHour == nil,
+                    liveCountdown: false)
+            }
+            if limits.fiveHour == nil, limits.sevenDay == nil {
+                message(
+                    "No usage limits reported.",
+                    systemImage: "gauge.with.dots.needle.bottom.0percent")
+            }
             Text("Updated \(limits.fetchedAt.formatted(date: .omitted, time: .shortened))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
