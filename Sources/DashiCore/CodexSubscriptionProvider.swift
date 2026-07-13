@@ -4,8 +4,11 @@ import Foundation
 /// Codex CLI calls internally (`chatgpt.com/backend-api/wham/usage`). Personal-use and read-only:
 /// it reuses the Codex CLI's locally-stored OAuth token and never writes back to `auth.json`.
 ///
-/// Codex's `primary_window` (5-hour) and `secondary_window` (weekly) map onto the same
-/// ``SubscriptionLimits`` shape as the Claude gauge, so both providers render identically.
+/// Codex reports its rolling windows as `primary_window` / `secondary_window`, but — unlike Claude's
+/// named `five_hour` / `seven_day` — those positions are not a fixed 5-hour/weekly assignment: a plan
+/// may surface only one window (e.g. Plus returns the weekly window as `primary_window` with
+/// `secondary_window` null). Each window's true horizon is carried by `limit_window_seconds`, which we
+/// route on to fill the same ``SubscriptionLimits`` shape as the Claude gauge, so both render identically.
 ///
 /// Refresh note: Codex uses rotating refresh tokens, so refreshing would mean rewriting the CLI's
 /// `auth.json` — a mutation of another tool's credentials that can invalidate the CLI's own login if
@@ -88,8 +91,10 @@ public struct CodexSubscriptionProvider: LimitProvider {
     }
 
     /// Decodes the `wham/usage` payload — `rate_limit.primary_window` / `secondary_window`, each with
-    /// `used_percent` and an epoch-seconds `reset_at` — into ``SubscriptionLimits`` (primary → 5-hour,
-    /// secondary → weekly).
+    /// `used_percent`, an epoch-seconds `reset_at`, and a `limit_window_seconds` horizon — into
+    /// ``SubscriptionLimits``. Windows are placed by their horizon, not their position: any window
+    /// shorter than a day fills the 5-hour slot, a day or longer fills the weekly slot. Missing or
+    /// unclassifiable windows fail closed to 0% with no reset, like the Claude decoder.
     static func decodeUsage(_ data: Data, fetchedAt: Date) throws -> SubscriptionLimits {
         struct Response: Decodable {
             let rateLimit: RateLimit?
@@ -100,6 +105,7 @@ public struct CodexSubscriptionProvider: LimitProvider {
             struct Window: Decodable {
                 let usedPercent: Double?
                 let resetAt: Double?
+                let limitWindowSeconds: Double?
             }
         }
         let decoded: Response
@@ -110,6 +116,20 @@ public struct CodexSubscriptionProvider: LimitProvider {
         } catch {
             throw LimitError.requestFailed("decode: \(error.localizedDescription)")
         }
+        // 5-hour ≈ 18000s, weekly ≈ 604800s; one day cleanly separates the two horizons. A window
+        // without `limit_window_seconds` can't be placed, so it's dropped (fail closed). First match
+        // wins per slot, so a duplicate horizon can't clobber an already-filled slot.
+        let oneDay: Double = 24 * 3600
+        var fiveHourWindow: Response.Window?
+        var weeklyWindow: Response.Window?
+        for window in [decoded.rateLimit?.primaryWindow, decoded.rateLimit?.secondaryWindow] {
+            guard let window, let seconds = window.limitWindowSeconds else { continue }
+            if seconds < oneDay {
+                fiveHourWindow = fiveHourWindow ?? window
+            } else {
+                weeklyWindow = weeklyWindow ?? window
+            }
+        }
         func limit(_ window: Response.Window?) -> RollingLimit {
             RollingLimit(
                 utilization: window?.usedPercent ?? 0,
@@ -117,8 +137,8 @@ public struct CodexSubscriptionProvider: LimitProvider {
             )
         }
         return SubscriptionLimits(
-            fiveHour: limit(decoded.rateLimit?.primaryWindow),
-            sevenDay: limit(decoded.rateLimit?.secondaryWindow),
+            fiveHour: limit(fiveHourWindow),
+            sevenDay: limit(weeklyWindow),
             fetchedAt: fetchedAt
         )
     }

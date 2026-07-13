@@ -28,8 +28,8 @@ final class CodexSubscriptionProviderTests: XCTestCase {
         CodexOAuthToken(accessToken: Secret("t"), accountId: accountId)
     }
 
-    func testDecodeUsageMapsPrimaryAndSecondaryWindows() throws {
-        // reset_at is epoch seconds; primary → 5-hour, secondary → weekly.
+    func testDecodeUsageRoutesWindowsByHorizon() throws {
+        // reset_at is epoch seconds; the 18000s window → 5-hour slot, the 604800s window → weekly.
         let json = """
             {"plan_type":"pro","rate_limit":{
               "primary_window":{"used_percent":41,"reset_at":1000900,"limit_window_seconds":18000},
@@ -41,6 +41,32 @@ final class CodexSubscriptionProviderTests: XCTestCase {
         XCTAssertEqual(limits.sevenDay.utilization, 12.5)
         XCTAssertEqual(limits.sevenDay.resetsAt, Date(timeIntervalSince1970: 1_600_000))
         XCTAssertEqual(limits.fetchedAt, epoch)
+    }
+
+    func testDecodeUsageRoutesByHorizonNotPosition() throws {
+        // The real Plus payload: the weekly window arrives as `primary_window` (604800s) and there is
+        // no 5-hour window (`secondary_window` null). Weekly usage must land in the weekly slot — not
+        // the 5-hour slot — and the 5-hour slot fails closed to 0%.
+        let json = """
+            {"plan_type":"plus","rate_limit":{
+              "primary_window":{"used_percent":37,"reset_at":1784558103,"limit_window_seconds":604800},
+              "secondary_window":null}}
+            """
+        let limits = try CodexSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.fiveHour.utilization, 0)
+        XCTAssertNil(limits.fiveHour.resetsAt)
+        XCTAssertEqual(limits.sevenDay.utilization, 37)
+        XCTAssertEqual(limits.sevenDay.resetsAt, Date(timeIntervalSince1970: 1_784_558_103))
+    }
+
+    func testDecodeUsageDropsWindowsWithoutHorizon() throws {
+        // A window with no `limit_window_seconds` can't be classified, so it fails closed to 0%.
+        let json = """
+            {"rate_limit":{"primary_window":{"used_percent":55,"reset_at":1000900}}}
+            """
+        let limits = try CodexSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.fiveHour.utilization, 0)
+        XCTAssertEqual(limits.sevenDay.utilization, 0)
     }
 
     func testDecodeUsageToleratesMissingWindows() throws {
@@ -94,8 +120,8 @@ final class CodexSubscriptionProviderTests: XCTestCase {
 
     func testSuccessReturnsLimits() async throws {
         let body = #"""
-            {"rate_limit":{"primary_window":{"used_percent":10,"reset_at":null},
-             "secondary_window":{"used_percent":5,"reset_at":null}}}
+            {"rate_limit":{"primary_window":{"used_percent":10,"reset_at":null,"limit_window_seconds":18000},
+             "secondary_window":{"used_percent":5,"reset_at":null,"limit_window_seconds":604800}}}
             """#
         let provider = provider(
             credentials: StubCodexCredentialsReader(token: token()),
