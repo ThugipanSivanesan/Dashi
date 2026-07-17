@@ -16,13 +16,20 @@ struct DashiApp: App {
     init() {
         let consent = UserDefaultsConsentStore()
         sharedConsent = consent
+        // A category per provider so the two pollers' otherwise-identical lines stay attributable
+        // (`log show --info --predicate 'category == "claude"'`).
+        let redactor = Redactor()
         let interval = Settings.fromEnvironment().pollInterval
         _claudeViewModel = State(
             initialValue: LimitViewModel(
-                provider: ClaudeSubscriptionProvider(), consent: consent, pollInterval: interval))
+                provider: ClaudeSubscriptionProvider(), consent: consent,
+                log: RedactingLog(category: "claude", redactor: redactor),
+                pollInterval: interval))
         _codexViewModel = State(
             initialValue: LimitViewModel(
-                provider: CodexSubscriptionProvider(), consent: consent, pollInterval: interval))
+                provider: CodexSubscriptionProvider(), consent: consent,
+                log: RedactingLog(category: "codex", redactor: redactor),
+                pollInterval: interval))
         _dailyTokensViewModel = State(initialValue: DailyTokensViewModel())
     }
 
