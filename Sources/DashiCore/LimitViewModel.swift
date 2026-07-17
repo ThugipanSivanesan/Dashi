@@ -34,6 +34,7 @@ public final class LimitViewModel {
     public private(set) var isRateLimited = false
     @ObservationIgnored private let provider: any LimitProvider
     @ObservationIgnored private let consent: any ConsentStore
+    @ObservationIgnored private let log: RedactingLog?
     @ObservationIgnored private let now: () -> Date
     /// Most recent successful reading. Kept so a transient failure or a rate-limit backoff shows
     /// stale-but-valid data instead of flashing an error.
@@ -48,9 +49,10 @@ public final class LimitViewModel {
     /// attempt from the backoff, so a popup-open inside the window reuses cached data instead of
     /// firing a request straight back into the limit.
     @ObservationIgnored private var nextAllowedFetch = Date.distantPast
-    /// Earliest time we may retry after a *known* rate limit (HTTP 429). Even a forced manual refresh
-    /// honors this, so the user can't hammer us back into a 429; `nil` when we're not rate-limited.
-    @ObservationIgnored private var rateLimitedUntil: Date?
+    /// Earliest time we may retry after a *known* rate limit (HTTP 429). Observed by the view to show
+    /// a retry countdown. Even a forced manual refresh honors this, so the user can't hammer us back
+    /// into a 429; `nil` when we're not rate-limited.
+    public private(set) var rateLimitedUntil: Date?
     /// The last real fetch outcome, returned when a call is coalesced or throttle-skipped so callers
     /// still see a sensible result without a redundant request.
     @ObservationIgnored private var lastOutcome: PollOutcome = .success
@@ -70,6 +72,7 @@ public final class LimitViewModel {
     public init(
         provider: any LimitProvider,
         consent: any ConsentStore = UserDefaultsConsentStore(),
+        log: RedactingLog? = nil,
         pollInterval: TimeInterval = 300,
         popupMinInterval: TimeInterval = 60,
         manualRateLimitCap: TimeInterval = 60,
@@ -77,6 +80,7 @@ public final class LimitViewModel {
     ) {
         self.provider = provider
         self.consent = consent
+        self.log = log
         self.backoff = PollBackoff(baseInterval: pollInterval)
         self.popupMinInterval = max(0, popupMinInterval)
         self.manualRateLimitCap = max(0, manualRateLimitCap)
@@ -182,12 +186,15 @@ public final class LimitViewModel {
             let limits = try await provider.currentLimits()
             lastLoaded = limits
             state = .loaded(limits)
+            log?.info("usage fetch ok")
             return .success
         } catch LimitError.notSignedIn {
             state = .notSignedIn
+            log?.info("usage fetch: not signed in")
             return .terminal
         } catch LimitError.needsReauth {
             state = .needsReauth
+            log?.info("usage fetch: needs reauth")
             return .terminal
         } catch LimitError.rateLimited(let retryAfter) {
             // Prefer the last good reading; if we've never loaded, stay on the spinner (we're still
@@ -197,12 +204,18 @@ public final class LimitViewModel {
             } else {
                 state = .loading
             }
+            log?.info(
+                "usage fetch rate-limited (429), retryAfter=\(retryAfter.map { String($0) } ?? "nil")"
+            )
             return .rateLimited(retryAfter: retryAfter)
         } catch LimitError.requestFailed(let message) {
             showStaleOrError(message)
+            log?.error("usage fetch failed: \(message)")
             return .transientFailure
         } catch {
-            showStaleOrError("Couldn't load usage")
+            let message = "Couldn't load usage"
+            showStaleOrError(message)
+            log?.error("usage fetch failed: \(message)")
             return .transientFailure
         }
     }

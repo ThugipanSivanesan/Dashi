@@ -110,6 +110,26 @@ final class LimitViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .loading)
     }
 
+    func testRateLimitedPublishesRetryDeadlineForTheSpinnerCountdown() async throws {
+        // The cold-429 spinner renders a countdown from `rateLimitedUntil`; if a 429 didn't publish a
+        // deadline the spinner would be back to looking silently frozen with no explanation.
+        let clock = MutableClock()
+        let viewModel = LimitViewModel(
+            provider: StubLimitProvider(result: .failure(.rateLimited(retryAfter: 1200))),
+            consent: InMemoryConsentStore(true),
+            pollInterval: 600,
+            now: { clock.now })
+        XCTAssertNil(viewModel.rateLimitedUntil)
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.state, .loading)
+        // The server's Retry-After is honored uncapped, plus up to 10% one-sided jitter.
+        let deadline = try XCTUnwrap(viewModel.rateLimitedUntil)
+        XCTAssertGreaterThanOrEqual(deadline, clock.now.addingTimeInterval(1200))
+        XCTAssertLessThanOrEqual(deadline, clock.now.addingTimeInterval(1320))
+    }
+
     func testIsRateLimitedReflectsServer429ThenClearsOnSuccess() async {
         let clock = MutableClock()
         let viewModel = LimitViewModel(

@@ -207,10 +207,25 @@ private struct LimitSection: View {
     @ViewBuilder
     private var content: some View {
         switch viewModel.state {
-        case .loading, .needsConsent:
+        case .needsConsent:
             ProgressView()
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 8)
+        case .loading:
+            VStack {
+                ProgressView()
+                if viewModel.isRateLimited {
+                    Label(
+                        "Rate-limited — retrying in \(resetCountdown(to: viewModel.rateLimitedUntil))",
+                        systemImage: "clock.arrow.circlepath"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 8)
         case .loaded(let limits):
             limitsView(limits)
         case .notSignedIn:
