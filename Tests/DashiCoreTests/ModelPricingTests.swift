@@ -53,6 +53,74 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.undatedModelID("short"), "short")
     }
 
+    // MARK: - Fast mode
+
+    func testFastModeUsesPremiumRates() {
+        // Opus 4.8 fast mode is $10/$50 against $5/$25 standard — exactly double.
+        let fast = ModelPricing.rates(forModel: "claude-opus-4-8", speed: .fast)
+        XCTAssertEqual(fast?.inputPerMTok, 10)
+        XCTAssertEqual(fast?.outputPerMTok, 50)
+        // Cache multipliers derive from the higher input rate rather than the standard one.
+        XCTAssertEqual(fast?.cacheWrite5mPerMTok ?? 0, 12.5, accuracy: 1e-9)
+        XCTAssertEqual(fast?.cacheWrite1hPerMTok ?? 0, 20, accuracy: 1e-9)
+        XCTAssertEqual(fast?.cacheReadPerMTok ?? 0, 1, accuracy: 1e-9)
+
+        // Opus 4.7 fast mode is priced separately again, at 6x its own standard rate.
+        let opus47 = ModelPricing.rates(forModel: "claude-opus-4-7", speed: .fast)
+        XCTAssertEqual(opus47?.inputPerMTok, 30)
+        XCTAssertEqual(opus47?.outputPerMTok, 150)
+    }
+
+    func testFastModeFallsBackToStandardWhereItIsntOffered() {
+        // Models that don't offer fast mode are served at standard speed and billed standard, so
+        // the request is priced normally rather than treated as unknown.
+        let sonnet = ModelPricing.rates(forModel: "claude-sonnet-5", speed: .fast)
+        XCTAssertEqual(sonnet?.inputPerMTok, 3)
+        XCTAssertEqual(sonnet?.outputPerMTok, 15)
+        // An unknown model stays unknown regardless of speed.
+        XCTAssertNil(ModelPricing.rates(forModel: "claude-from-the-future", speed: .fast))
+    }
+
+    func testSpeedParsing() {
+        // Absent means standard: the field postdates fast mode's introduction.
+        XCTAssertEqual(InferenceSpeed.parse(nil), .standard)
+        XCTAssertEqual(InferenceSpeed.parse("standard"), .standard)
+        XCTAssertEqual(InferenceSpeed.parse("fast"), .fast)
+        // A serving mode we don't recognise must not be assumed to be standard.
+        XCTAssertNil(InferenceSpeed.parse("turbo"))
+        XCTAssertNil(InferenceSpeed.parse(""))
+    }
+
+    func testFastTurnIsPricedAtDoubleAStandardOne() {
+        func line(_ speed: String) -> String {
+            """
+            {"type":"assistant","timestamp":"\(today)","requestId":"r-\(speed)","message":\
+            {"id":"m-\(speed)","model":"claude-opus-4-8","usage":{"input_tokens":1000000,\
+            "output_tokens":1000000,"speed":"\(speed)"}}}
+            """
+        }
+        let standard = aggregate(line("standard"))
+        let fast = aggregate(line("fast"))
+
+        XCTAssertEqual(standard.costUSD, 5 + 25, accuracy: 1e-9)
+        XCTAssertEqual(fast.costUSD, 10 + 50, accuracy: 1e-9)
+        XCTAssertTrue(fast.isFullyPriced)
+    }
+
+    func testUnrecognisedSpeedLeavesTheTurnUnpriced() {
+        // Better a visible floor than a figure that could be off by the width of the fast premium.
+        let total = aggregate(
+            """
+            {"type":"assistant","timestamp":"\(today)","requestId":"r1","message":{"id":"m1",\
+            "model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":20,\
+            "speed":"ludicrous"}}}
+            """)
+        XCTAssertEqual(total.total, 120)
+        XCTAssertEqual(total.costUSD, 0)
+        XCTAssertEqual(total.unpricedTokens, 120)
+        XCTAssertFalse(total.isFullyPriced)
+    }
+
     // MARK: - Cost arithmetic
 
     func testCostSumsEveryTokenCategoryAtItsOwnRate() {
