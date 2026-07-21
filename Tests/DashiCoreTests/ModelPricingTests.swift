@@ -61,7 +61,8 @@ final class ModelPricingTests: XCTestCase {
             of: PricedTokens(
                 input: 1_000_000, output: 1_000_000, cacheRead: 1_000_000,
                 cacheWrite5m: 1_000_000, cacheWrite1h: 1_000_000))
-        XCTAssertEqual(cost, 5 + 25 + 0.5 + 6.25 + 10, accuracy: 1e-9)
+        let expected: Double = 5 + 25 + 0.5 + 6.25 + 10
+        XCTAssertEqual(cost, expected, accuracy: 1e-9)
     }
 
     func testFormatUSD() {
@@ -91,8 +92,13 @@ final class ModelPricingTests: XCTestCase {
             """)
 
         // 2 input @ $5 + 322 output @ $25 + 13438 read @ $0.50 + 8094 1h-write @ $10, per MTok.
-        let expected =
-            (2 * 5.0 + 322 * 25.0 + 13438 * 0.5 + 8094 * 10.0) / 1_000_000
+        // Spelled out one term per line with explicit types: as a single expression this overwhelms
+        // the Swift 5.10 type-checker that ships with the Xcode the release workflow pins.
+        let input: Double = 2 * 5
+        let output: Double = 322 * 25
+        let cacheRead: Double = 13438 * 0.5
+        let cacheWrite1h: Double = 8094 * 10
+        let expected: Double = (input + output + cacheRead + cacheWrite1h) / 1_000_000
         XCTAssertEqual(total.costUSD, expected, accuracy: 1e-9)
         XCTAssertEqual(total.unpricedTokens, 0)
         XCTAssertTrue(total.isFullyPriced)
