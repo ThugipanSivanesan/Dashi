@@ -8,17 +8,28 @@ public struct ProviderDailyTokens: Sendable, Equatable {
     public let outputTokens: Int
     public let cacheCreationTokens: Int
     public let cacheReadTokens: Int
+    /// What today's usage would have cost at pay-as-you-go API rates, summed over the turns whose
+    /// model we have published rates for. Subscription usage isn't actually billed per token — this
+    /// is the equivalent-cost estimate, not a charge.
+    public let costUSD: Double
+    /// Tokens from turns we couldn't price (unrecognized or unrecorded model). Non-zero means
+    /// ``costUSD`` is a floor, not the whole picture.
+    public let unpricedTokens: Int
 
     public init(
         inputTokens: Int = 0,
         outputTokens: Int = 0,
         cacheCreationTokens: Int = 0,
-        cacheReadTokens: Int = 0
+        cacheReadTokens: Int = 0,
+        costUSD: Double = 0,
+        unpricedTokens: Int = 0
     ) {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.cacheCreationTokens = cacheCreationTokens
         self.cacheReadTokens = cacheReadTokens
+        self.costUSD = costUSD
+        self.unpricedTokens = unpricedTokens
     }
 
     /// Total tokens the model processed today, across fresh input, output, and cache reads/writes —
@@ -26,6 +37,10 @@ public struct ProviderDailyTokens: Sendable, Equatable {
     public var total: Int {
         inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
     }
+
+    /// Whether every token counted today came from a model we have rates for. False means the
+    /// estimate understates the true equivalent cost.
+    public var isFullyPriced: Bool { unpricedTokens == 0 }
 
     public static let zero = ProviderDailyTokens()
 
@@ -35,7 +50,9 @@ public struct ProviderDailyTokens: Sendable, Equatable {
             inputTokens: lhs.inputTokens + rhs.inputTokens,
             outputTokens: lhs.outputTokens + rhs.outputTokens,
             cacheCreationTokens: lhs.cacheCreationTokens + rhs.cacheCreationTokens,
-            cacheReadTokens: lhs.cacheReadTokens + rhs.cacheReadTokens)
+            cacheReadTokens: lhs.cacheReadTokens + rhs.cacheReadTokens,
+            costUSD: lhs.costUSD + rhs.costUSD,
+            unpricedTokens: lhs.unpricedTokens + rhs.unpricedTokens)
     }
 }
 

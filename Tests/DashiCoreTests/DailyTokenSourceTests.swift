@@ -142,8 +142,10 @@ final class DailyTokenSourceTests: XCTestCase {
         try Data((line + "\n").utf8)
             .write(to: project.appendingPathComponent("session.jsonl"))
 
+        // No `message.model` on this line, so the tokens count toward the day but can't be priced.
         XCTAssertEqual(
-            source.tokensToday(), ProviderDailyTokens(inputTokens: 100, outputTokens: 20))
+            source.tokensToday(),
+            ProviderDailyTokens(inputTokens: 100, outputTokens: 20, unpricedTokens: 120))
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
     }
 

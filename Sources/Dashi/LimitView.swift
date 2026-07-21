@@ -168,11 +168,15 @@ private struct DailyTokensSection: View {
                 tokenRow(title: "Claude", provider: viewModel.tokens?.claude)
                 tokenRow(title: "Codex", provider: viewModel.tokens?.codex)
             }
+            Text("Est. pay-as-you-go API cost — subscription usage isn't billed per token.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func tokenRow(title: String, provider: ProviderDailyTokens?) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(title)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -181,12 +185,40 @@ private struct DailyTokensSection: View {
                 .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(provider == nil ? Color.secondary : Color.primary)
+            Text(costText(for: provider))
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 54, alignment: .trailing)
+                .help(costHelp(for: provider))
         }
     }
 
     private func tokenText(for provider: ProviderDailyTokens?) -> String {
         guard let provider else { return "—" }
         return formatTokenCount(provider.total)
+    }
+
+    /// The dollar estimate, or "—" when nothing today could be priced. A trailing `+` marks a
+    /// figure that omits some usage, so it reads as a floor rather than a total.
+    private func costText(for provider: ProviderDailyTokens?) -> String {
+        guard let provider, provider.costUSD > 0 || provider.isFullyPriced else { return "—" }
+        return formatUSD(provider.costUSD) + (provider.isFullyPriced ? "" : "+")
+    }
+
+    private func costHelp(for provider: ProviderDailyTokens?) -> String {
+        guard let provider else { return "No local logs found for this provider." }
+        if provider.isFullyPriced {
+            return "What today's tokens would have cost at pay-as-you-go API rates."
+        }
+        if provider.costUSD > 0 {
+            return """
+                At least \(formatUSD(provider.costUSD)) at API rates. \
+                \(formatTokenCount(provider.unpricedTokens)) tokens came from models with no \
+                published rate on file and aren't included.
+                """
+        }
+        return "No published rates on file for the models used, so there's nothing to estimate."
     }
 }
 
