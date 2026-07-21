@@ -89,13 +89,20 @@ public struct CodexDailyTokenSource: DailyTokenSource {
             let input = usage.inputTokens ?? 0
             let key = "\(timestamp)|\(input)|\(usage.outputTokens ?? 0)"
             guard seen.insert(key).inserted else { continue }
+            // No cost estimate for Codex: `token_count` events don't name a model (it lives on
+            // separate `turn_context` lines), and we have no published OpenAI rates wired in. Every
+            // token is reported as unpriced so the UI shows "—" rather than a misleading $0.00.
+            let fresh = max(0, input - cached)
+            let output = usage.outputTokens ?? 0
             total =
                 total
                 + ProviderDailyTokens(
-                    inputTokens: max(0, input - cached),
-                    outputTokens: usage.outputTokens ?? 0,
+                    inputTokens: fresh,
+                    outputTokens: output,
                     cacheCreationTokens: 0,
-                    cacheReadTokens: cached)
+                    cacheReadTokens: cached,
+                    costUSD: 0,
+                    unpricedTokens: fresh + output + cached)
         }
         return total
     }

@@ -42,13 +42,15 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
     }
 
     /// One JSONL line of a Claude Code transcript. Only assistant turns carry a `usage` block; the
-    /// top-level `requestId` and `message.id` identify a turn for deduplication.
+    /// top-level `requestId` and `message.id` identify a turn for deduplication, and `message.model`
+    /// names the model so the turn can be priced.
     private struct Line: Decodable {
         let timestamp: String?
         let requestId: String?
         let message: Message?
         struct Message: Decodable {
             let id: String?
+            let model: String?
             let usage: Usage?
         }
         struct Usage: Decodable {
@@ -56,6 +58,16 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
             let outputTokens: Int?
             let cacheCreationInputTokens: Int?
             let cacheReadInputTokens: Int?
+            /// Splits the cache write across TTL tiers, which bill at different multiples of the
+            /// input rate. Absent on older transcripts.
+            let cacheCreation: CacheCreation?
+            /// Note the capital `M`/`H`: `convertFromSnakeCase` capitalizes each underscore-separated
+            /// segment, so `ephemeral_5m_input_tokens` becomes `ephemeral5MInputTokens`. Spelling
+            /// these with a lowercase unit silently fails to decode and mis-prices the cache write.
+            struct CacheCreation: Decodable {
+                let ephemeral5MInputTokens: Int?
+                let ephemeral1HInputTokens: Int?
+            }
         }
     }
 
@@ -79,13 +91,29 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
                 let key = "\(decoded.requestId ?? "")|\(decoded.message?.id ?? "")"
                 guard seen.insert(key).inserted else { continue }
             }
+            let cacheCreation = usage.cacheCreationInputTokens ?? 0
+            // Older transcripts report only the flat total; bill those at the 5-minute rate, the
+            // cheaper and far more common tier, so an unknown split can't overstate the cost.
+            let write1h = usage.cacheCreation?.ephemeral1HInputTokens ?? 0
+            let write5m = usage.cacheCreation?.ephemeral5MInputTokens ?? (cacheCreation - write1h)
+
+            let priced = PricedTokens(
+                input: usage.inputTokens ?? 0,
+                output: usage.outputTokens ?? 0,
+                cacheRead: usage.cacheReadInputTokens ?? 0,
+                cacheWrite5m: max(0, write5m),
+                cacheWrite1h: write1h)
+            let rates = decoded.message?.model.flatMap(ModelPricing.rates(forModel:))
+
             total =
                 total
                 + ProviderDailyTokens(
-                    inputTokens: usage.inputTokens ?? 0,
-                    outputTokens: usage.outputTokens ?? 0,
-                    cacheCreationTokens: usage.cacheCreationInputTokens ?? 0,
-                    cacheReadTokens: usage.cacheReadInputTokens ?? 0)
+                    inputTokens: priced.input,
+                    outputTokens: priced.output,
+                    cacheCreationTokens: cacheCreation,
+                    cacheReadTokens: priced.cacheRead,
+                    costUSD: rates?.cost(of: priced) ?? 0,
+                    unpricedTokens: rates == nil ? priced.total : 0)
         }
         return total
     }
