@@ -214,11 +214,11 @@ private struct DailyTokensSection: View {
         if provider.costUSD > 0 {
             return """
                 At least \(formatUSD(provider.costUSD)) at API rates. \
-                \(formatTokenCount(provider.unpricedTokens)) tokens came from models with no \
-                published rate on file and aren't included.
+                \(formatTokenCount(provider.unpricedTokens)) tokens came from a model or serving \
+                speed with no published rate on file and aren't included.
                 """
         }
-        return "No published rates on file for the models used, so there's nothing to estimate."
+        return "No published rates on file for the usage today, so there's nothing to estimate."
     }
 }
 

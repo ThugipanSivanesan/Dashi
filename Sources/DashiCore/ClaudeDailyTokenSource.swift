@@ -61,6 +61,9 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
             /// Splits the cache write across TTL tiers, which bill at different multiples of the
             /// input rate. Absent on older transcripts.
             let cacheCreation: CacheCreation?
+            /// `standard` or `fast` — fast mode bills at premium rates. Absent on older
+            /// transcripts, which predate fast mode entirely.
+            let speed: String?
             /// Note the capital `M`/`H`: `convertFromSnakeCase` capitalizes each underscore-separated
             /// segment, so `ephemeral_5m_input_tokens` becomes `ephemeral5MInputTokens`. Spelling
             /// these with a lowercase unit silently fails to decode and mis-prices the cache write.
@@ -103,7 +106,11 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
                 cacheRead: usage.cacheReadInputTokens ?? 0,
                 cacheWrite5m: max(0, write5m),
                 cacheWrite1h: write1h)
-            let rates = decoded.message?.model.flatMap(ModelPricing.rates(forModel:))
+            // An unrecognised `speed` leaves the turn unpriced: fast mode can cost several times
+            // standard, so a serving mode we can't identify is not something to assume through.
+            let rates = InferenceSpeed.parse(usage.speed).flatMap { speed in
+                decoded.message?.model.flatMap { ModelPricing.rates(forModel: $0, speed: speed) }
+            }
 
             total =
                 total

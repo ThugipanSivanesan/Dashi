@@ -55,6 +55,27 @@ public struct PricedTokens: Sendable, Equatable {
     public var total: Int { input + output + cacheRead + cacheWrite5m + cacheWrite1h }
 }
 
+/// How a turn was served. Fast mode bills at a premium — on Opus 4.8 it doubles the base rates — so
+/// it can't be assumed either way.
+public enum InferenceSpeed: Sendable, Equatable {
+    case standard
+    case fast
+
+    /// Reads Claude Code's `usage.speed`.
+    ///
+    /// A missing field means standard: `speed` only appears in later Claude Code versions, and
+    /// fast mode postdates every transcript that lacks it. An *unrecognised* value returns `nil`
+    /// instead, so the caller can mark the turn unpriced rather than guess which side of a 2x rate
+    /// difference it belongs on.
+    public static func parse(_ raw: String?) -> InferenceSpeed? {
+        switch raw {
+        case nil, "standard": .standard
+        case "fast": .fast
+        default: nil
+        }
+    }
+}
+
 /// Maps a model id to its published rates.
 ///
 /// Deliberately incomplete: a model absent from the table is reported as *unpriced* rather than
@@ -76,18 +97,34 @@ public enum ModelPricing {
         "claude-haiku-4-5": ModelRates(inputPerMTok: 1, outputPerMTok: 5),
     ]
 
+    /// Fast-mode rates, which replace the base rates outright rather than scaling them. Only the
+    /// models that actually offer fast mode appear here; cache multipliers still derive from the
+    /// (higher) fast input rate.
+    private static let anthropicFast: [String: ModelRates] = [
+        "claude-opus-4-8": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
+        "claude-opus-4-7": ModelRates(inputPerMTok: 30, outputPerMTok: 150),
+    ]
+
     /// Claude Code labels locally-generated turns `<synthetic>`. They never hit the API, so they
     /// cost nothing — priced at zero rather than counted as "unknown model".
     public static let syntheticModel = "<synthetic>"
 
-    /// The rates for `model`, or `nil` if we have no published figure for it.
+    /// The rates for `model` at `speed`, or `nil` if we have no published figure for it.
     ///
     /// Ids may carry a dated-snapshot suffix (`claude-sonnet-4-5-20250929`); the alias is tried
     /// first, then the id with a trailing `-YYYYMMDD` stripped.
-    public static func rates(forModel model: String) -> ModelRates? {
+    public static func rates(
+        forModel model: String, speed: InferenceSpeed = .standard
+    ) -> ModelRates? {
         if model == syntheticModel { return ModelRates(inputPerMTok: 0, outputPerMTok: 0) }
-        if let exact = anthropic[model] { return exact }
-        return anthropic[undatedModelID(model)]
+        let id = anthropic[model] == nil ? undatedModelID(model) : model
+        guard let standard = anthropic[id] else { return nil }
+        switch speed {
+        case .standard: return standard
+        // Where a model doesn't offer fast mode the API serves the request at standard speed and
+        // bills it at standard rates, so falling back is documented behaviour rather than a guess.
+        case .fast: return anthropicFast[id] ?? standard
+        }
     }
 
     /// Drops a trailing `-YYYYMMDD` snapshot suffix, leaving the alias.
