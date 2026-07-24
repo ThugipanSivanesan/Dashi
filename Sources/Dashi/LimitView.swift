@@ -124,6 +124,13 @@ struct LimitView: View {
             .buttonStyle(.borderless)
             .help("Refresh")
         }
+        // Give the title row a filled, subtly raised bar so it reads as an intentional header
+        // instead of bare text floating on the popover's translucent material. `.thinMaterial` is
+        // adaptive, so the bar stays legible in both light and dark; the title keeps `.primary` and
+        // the refresh button its accent tint, both readable on the material.
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var consentPrompt: some View {
