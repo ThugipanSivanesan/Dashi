@@ -89,6 +89,7 @@ public enum ModelPricing {
     private static let anthropic: [String: ModelRates] = [
         "claude-fable-5": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-mythos-5": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
+        "claude-opus-5": ModelRates(inputPerMTok: 5, outputPerMTok: 25),
         "claude-opus-4-8": ModelRates(inputPerMTok: 5, outputPerMTok: 25),
         "claude-opus-4-7": ModelRates(inputPerMTok: 5, outputPerMTok: 25),
         "claude-opus-4-6": ModelRates(inputPerMTok: 5, outputPerMTok: 25),
@@ -101,6 +102,7 @@ public enum ModelPricing {
     /// models that actually offer fast mode appear here; cache multipliers still derive from the
     /// (higher) fast input rate.
     private static let anthropicFast: [String: ModelRates] = [
+        "claude-opus-5": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-opus-4-8": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-opus-4-7": ModelRates(inputPerMTok: 30, outputPerMTok: 150),
     ]
