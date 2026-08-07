@@ -81,19 +81,29 @@ public protocol DailyTokenSource: Sendable {
 public func formatTokenCount(_ count: Int) -> String {
     let sign = count < 0 ? "-" : ""
     let value = abs(count)
-    switch value {
-    case ..<1_000:
-        return "\(sign)\(value)"
-    case ..<1_000_000:
-        return sign + compactToken(Double(value) / 1_000, "K")
-    case ..<1_000_000_000:
-        return sign + compactToken(Double(value) / 1_000_000, "M")
-    default:
-        return sign + compactToken(Double(value) / 1_000_000_000, "B")
+    if value < 1_000 { return "\(sign)\(value)" }
+
+    // Round first, then pick the unit. Choosing the unit from the raw count instead lets the
+    // rounding that follows push the scaled number into the next unit (999_950 → `1000K`), which
+    // is both four digits wide and a unit this function promises not to use — so promote instead.
+    let units: [(divisor: Double, suffix: String)] = [
+        (1_000, "K"), (1_000_000, "M"), (1_000_000_000, "B"),
+    ]
+    for (index, unit) in units.enumerated() {
+        let scaled = ((Double(value) / unit.divisor) * 10).rounded() / 10
+        // `B` is the largest unit there is: at the top of the range four digits are correct and
+        // there is nothing left to promote into, so the last unit always accepts the value.
+        if scaled < 1_000 || index == units.count - 1 {
+            return sign + compactToken(scaled, unit.suffix)
+        }
     }
+    return "\(sign)\(value)"  // Unreachable: the final unit always returns.
 }
 
 /// Rounds to one decimal and drops a trailing `.0`, so `340.0 → "340K"` but `5.6 → "5.6K"`.
+///
+/// Callers already round to one decimal to choose the unit; rounding again here is harmless
+/// (the operation is idempotent) and keeps the helper correct for a raw scaled value too.
 private func compactToken(_ scaled: Double, _ suffix: String) -> String {
     let rounded = (scaled * 10).rounded() / 10
     if rounded == rounded.rounded() {

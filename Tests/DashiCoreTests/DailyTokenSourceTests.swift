@@ -30,6 +30,22 @@ final class DailyTokenSourceTests: XCTestCase {
         XCTAssertEqual(formatTokenCount(3_400_000_000), "3.4B")
     }
 
+    /// Counts just under a unit boundary must promote rather than print a four-digit figure: the
+    /// unit is picked from the *rounded* value, so 999_950 is `1M`, not `1000K`.
+    func testFormatTokenCountPromotesWhenRoundingCrossesAUnit() {
+        XCTAssertEqual(formatTokenCount(999_950), "1M")
+        XCTAssertEqual(formatTokenCount(999_999), "1M")
+        XCTAssertEqual(formatTokenCount(999_999_500), "1B")
+        // Just below each promotion point the smaller unit is still the right one.
+        XCTAssertEqual(formatTokenCount(999_949), "999.9K")
+        XCTAssertEqual(formatTokenCount(999_949_999), "999.9M")
+        // The sign is re-attached after promotion, not lost in the new branch.
+        XCTAssertEqual(formatTokenCount(-999_950), "-1M")
+        // `B` is the largest unit there is, so at the top of the range four digits are correct —
+        // the promotion loop must not try to escape past it.
+        XCTAssertEqual(formatTokenCount(1_000_000_000_000), "1000B")
+    }
+
     // MARK: - Claude aggregation
 
     func testClaudeAggregatesTodaySplitByCategory() {
