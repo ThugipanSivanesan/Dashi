@@ -91,10 +91,15 @@ public final class LimitViewModel {
     }
 
     /// Records consent (the user accepted the experimental/ToS terms) and loads immediately.
+    ///
+    /// Loads as ``FetchReason/manual`` because this *is* a direct user action: the consent-gated poll
+    /// that ran at launch has already advanced ``nextAllowedFetch`` a full interval out, and a
+    /// `.scheduled` load would be throttle-skipped by it — leaving the prompt on screen for minutes
+    /// after the click, as if the button did nothing.
     @MainActor
     public func grantConsent() async {
         consent.setConsented(true)
-        await load()
+        await load(reason: .manual)
     }
 
     /// Polls ``load(reason:)`` until the surrounding task is cancelled, sleeping until the next
@@ -125,11 +130,20 @@ public final class LimitViewModel {
     @discardableResult
     public func load(reason: FetchReason = .scheduled) async -> PollOutcome {
         // Fail closed: never touch the Claude Code token until the user has consented.
+        // Advance the window even though we fetched nothing: `poll()` sleeps until `nextAllowedFetch`,
+        // so returning here without setting it would leave it at `.distantPast` and spin the loop at
+        // thousands of laps a second on the main actor for as long as consent went unanswered.
+        // `.terminal` is the right outcome — a consent gate doesn't rate-limit us, so its backoff is
+        // the normal cadence, and it deliberately leaves `rateLimitedUntil`/`isRateLimited` alone.
         guard consent.hasConsented() else {
             state = .needsConsent
+            lastOutcome = .terminal
+            nextAllowedFetch = now().addingTimeInterval(backoff.nextDelay(after: .terminal))
             return .terminal
         }
-        // Throttle per reason; skipping reuses the last outcome and cached state.
+        // Throttle per reason; skipping reuses the last outcome and cached state. Safe to return
+        // without advancing the window: the skip only happens when the window is already in the
+        // future, and the coalesce defers to an in-flight call that will advance it itself.
         if let blockedUntil = blockDeadline(for: reason), now() < blockedUntil {
             return lastOutcome
         }

@@ -40,6 +40,35 @@ private final class CountingLimitProvider: LimitProvider, @unchecked Sendable {
     }
 }
 
+/// Consent store that counts `hasConsented()` reads. Since ``LimitViewModel/load(reason:)`` reads
+/// consent exactly once per call, the count doubles as a lap counter for ``LimitViewModel/poll()``.
+private final class CountingConsentStore: ConsentStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Bool
+    private var readCount = 0
+
+    init(_ initial: Bool = false) { value = initial }
+
+    var reads: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return readCount
+    }
+
+    func hasConsented() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        readCount += 1
+        return value
+    }
+
+    func setConsented(_ value: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.value = value
+    }
+}
+
 /// A hand-cranked clock so tests can advance wall-clock time and exercise the backoff window
 /// without sleeping.
 private final class MutableClock {
@@ -325,6 +354,54 @@ final class LimitViewModelTests: XCTestCase {
             provider: StubLimitProvider(result: .success(limits())), consent: store)
         await viewModel.grantConsent()
         XCTAssertTrue(store.hasConsented())
+        XCTAssertEqual(viewModel.state, .loaded(limits()))
+    }
+
+    /// ``LimitViewModel/poll()`` must sleep between laps while the consent prompt goes unanswered.
+    /// The consent guard used to return before the line that advances `nextAllowedFetch`, so it kept
+    /// its `.distantPast` initial value, every computed sleep was zero-length, and the loop pinned
+    /// the main actor at tens of thousands of laps a second for as long as consent was outstanding.
+    ///
+    /// Wall-clock rather than the hand-cranked clock on purpose: the defect is that `poll()` does not
+    /// suspend, which only real time can observe.
+    func testPollSleepsWhileConsentIsOutstanding() async throws {
+        let consent = CountingConsentStore(false)
+        let viewModel = LimitViewModel(
+            provider: UnusedLimitProvider(), consent: consent, pollInterval: 600)
+        // The initializer reads consent once to choose the starting state; discount that.
+        let readsBeforePolling = consent.reads
+
+        let poller = Task { await viewModel.poll() }
+        try await Task.sleep(for: .milliseconds(200))
+        poller.cancel()
+        await poller.value
+
+        // Correct behaviour is a single lap, then a ~600s sleep. There is no ambiguous middle
+        // ground: with the busy-spin this counter lands in the tens of thousands.
+        let laps = consent.reads - readsBeforePolling
+        XCTAssertLessThanOrEqual(laps, 2, "poll() ran \(laps) laps in 200ms instead of sleeping")
+        // The fail-closed guarantee has to survive the fix: still gated, provider never touched
+        // (``UnusedLimitProvider`` fails the test if it is).
+        XCTAssertEqual(viewModel.state, .needsConsent)
+    }
+
+    /// Advancing the window on the consent path must not make the "Enable usage gauges" button feel
+    /// dead. Granting consent is a direct user action, so it fetches immediately instead of waiting
+    /// out the window that the preceding consent-gated poll just set — otherwise the prompt would
+    /// stay on screen for a full poll interval after the click.
+    func testGrantConsentLoadsImmediatelyAfterAConsentGatedPoll() async {
+        let clock = MutableClock()
+        let store = InMemoryConsentStore(false)
+        let provider = CountingLimitProvider([.success(limits())])
+        let viewModel = LimitViewModel(
+            provider: provider, consent: store, pollInterval: 600, now: { clock.now })
+        // What the poll loop does at launch while the prompt is unanswered.
+        await viewModel.load(reason: .scheduled)
+        XCTAssertEqual(provider.calls, 0)
+        // The user clicks Enable a second later — deep inside that 600s window.
+        clock.now = clock.now.addingTimeInterval(1)
+        await viewModel.grantConsent()
+        XCTAssertEqual(provider.calls, 1)
         XCTAssertEqual(viewModel.state, .loaded(limits()))
     }
 }
