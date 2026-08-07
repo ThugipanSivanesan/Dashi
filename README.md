@@ -1,9 +1,10 @@
 # Dashi
 
 A small macOS **menu bar** app that shows your **Claude** and **Codex** subscription usage limits at
-a glance — click the menu bar icon to see how much of each rolling window (5-hour and weekly) you've
-used and when it resets, without opening Claude Code or the Codex CLI. The menu bar shows whichever
-provider you're closest to your limit on.
+a glance — click the menu bar icon to see how much of each rolling window you've used and when it
+resets, without opening Claude Code or the Codex CLI. Dashi shows whichever windows each provider
+reports: **Claude**'s 5-hour and weekly, and **Codex**'s weekly (Codex has retired its 5-hour
+window). The menu bar shows whichever provider you're closest to your limit on.
 
 > macOS only for now. Native Swift + SwiftUI (`MenuBarExtra`).
 
@@ -81,8 +82,10 @@ To build from source instead, see [Development](#development) (`bash Scripts/mak
 
 ## Status
 
-- **Shipped:** Claude and Codex usage gauges — each shows its 5-hour and weekly rolling windows,
-  read from the local Claude Code / Codex CLI OAuth token (personal use — see [Privacy](#privacy)).
+- **Shipped:** Claude and Codex usage gauges — each shows whichever rolling windows the provider
+  reports (Claude's 5-hour and weekly; Codex now reports only a weekly window — its 5-hour window
+  has been retired), read from the local Claude Code / Codex CLI OAuth token (personal use — see
+  [Privacy](#privacy)).
 - **Roadmap:** refresh/threshold alerts, and a multi-provider Admin-API usage/cost dashboard.
 
 ## Why the percentage can differ from `/usage`
@@ -99,10 +102,11 @@ different calculation — it's one of two things:
   the live number drifts down between refreshes — which can leave Dashi a few
   points *higher* than a `/usage` you just ran. It re-syncs on the next fetch;
   open the popup to pull a fresh reading.
-- **You're comparing different windows.** The menu-bar number is always the
-  **5-hour** window. `/usage` prints both the 5-hour *and* the weekly limit, so
-  make sure you're comparing like for like — the Dashi popup shows both windows
-  side by side.
+- **You're comparing different windows.** The menu-bar number is the provider's
+  shortest reported window — the **5-hour** window for Claude, and the **weekly**
+  window for Codex (which no longer has a 5-hour window). `/usage` prints every
+  window a provider exposes, so make sure you're comparing like for like — the
+  Dashi popup shows each reported window side by side.
 
 ## Architecture
 
