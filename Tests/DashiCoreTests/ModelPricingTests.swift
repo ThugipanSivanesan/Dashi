@@ -32,6 +32,18 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(opus?.cacheReadPerMTok ?? 0, 0.5, accuracy: 1e-9)
     }
 
+    func testOpus5IsPricedLikeOpus48() {
+        // Opus 5 is the current Claude Code default; it lists at the same $5/$25 as Opus 4.8.
+        let opus5 = ModelPricing.rates(forModel: "claude-opus-5")
+        XCTAssertEqual(opus5?.inputPerMTok, 5)
+        XCTAssertEqual(opus5?.outputPerMTok, 25)
+        // A dated snapshot id must resolve through undatedModelID to the same rates, so the entry
+        // survives a future `claude-opus-5-YYYYMMDD` appearing in transcripts.
+        let dated = ModelPricing.rates(forModel: "claude-opus-5-20260101")
+        XCTAssertEqual(dated?.inputPerMTok, 5)
+        XCTAssertEqual(dated?.outputPerMTok, 25)
+    }
+
     func testUnknownModelHasNoRates() {
         XCTAssertNil(ModelPricing.rates(forModel: "gpt-5.5"))
         XCTAssertNil(ModelPricing.rates(forModel: "claude-opus-4-5"))
@@ -69,6 +81,14 @@ final class ModelPricingTests: XCTestCase {
         let opus47 = ModelPricing.rates(forModel: "claude-opus-4-7", speed: .fast)
         XCTAssertEqual(opus47?.inputPerMTok, 30)
         XCTAssertEqual(opus47?.outputPerMTok, 150)
+
+        // Opus 5 doubles like 4.8 does. Without its own fast entry the `?? standard` fallback would
+        // quietly bill these turns at half rate, so assert the premium explicitly.
+        let opus5 = ModelPricing.rates(forModel: "claude-opus-5", speed: .fast)
+        XCTAssertEqual(opus5?.inputPerMTok, 10)
+        XCTAssertEqual(opus5?.outputPerMTok, 50)
+        XCTAssertEqual(
+            ModelPricing.rates(forModel: "claude-opus-5-20260101", speed: .fast)?.inputPerMTok, 10)
     }
 
     func testFastModeFallsBackToStandardWhereItIsntOffered() {
