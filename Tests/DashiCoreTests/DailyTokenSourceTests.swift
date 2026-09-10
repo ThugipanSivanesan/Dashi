@@ -46,6 +46,14 @@ final class DailyTokenSourceTests: XCTestCase {
         XCTAssertEqual(formatTokenCount(1_000_000_000_000), "1000B")
     }
 
+    /// The most negative count must format rather than trap (issue #47). `Int.min + 1` scales to
+    /// the same one-decimal `B` value, so the expected string is anchored to a neighbour that
+    /// already formatted correctly.
+    func testFormatTokenCountHandlesTheMostNegativeCount() {
+        XCTAssertEqual(formatTokenCount(Int.min), formatTokenCount(Int.min + 1))
+        XCTAssertEqual(formatTokenCount(Int.min), "-9223372036.9B")
+    }
+
     // MARK: - Claude aggregation
 
     func testClaudeAggregatesTodaySplitByCategory() {
