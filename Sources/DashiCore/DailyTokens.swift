@@ -54,6 +54,11 @@ public struct ProviderDailyTokens: Sendable, Equatable {
             costUSD: lhs.costUSD + rhs.costUSD,
             unpricedTokens: lhs.unpricedTokens + rhs.unpricedTokens)
     }
+
+    /// In-place sum, for accumulating a running total over log lines or files.
+    public static func += (lhs: inout ProviderDailyTokens, rhs: ProviderDailyTokens) {
+        lhs = lhs + rhs
+    }
 }
 
 /// A snapshot of today's per-provider token usage. A `nil` provider means its logs were absent or

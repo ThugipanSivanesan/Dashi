@@ -1,0 +1,8 @@
+# Merged over the root config for Tests/ only. Stubbing `HTTPTransport` needs a canned
+# `HTTPURLResponse(url:statusCode:httpVersion:headerFields:)!`, which cannot fail for a literal URL;
+# CI runs `--strict`, so a warning would fail the job. Force unwrapping stays enforced in Sources/.
+disabled_rules: [force_unwrapping]
+
+# Test tables name their operands `a`/`b`. Sources/ keeps the default minimum.
+identifier_name:
+  min_length: 1
