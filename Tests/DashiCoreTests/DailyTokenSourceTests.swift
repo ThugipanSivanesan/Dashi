@@ -42,8 +42,12 @@ final class DailyTokenSourceTests: XCTestCase {
         // The sign is re-attached after promotion, not lost in the new branch.
         XCTAssertEqual(formatTokenCount(-999_950), "-1M")
         // `B` is the largest unit there is, so at the top of the range four digits are correct —
-        // the promotion loop must not try to escape past it.
+        // the promotion loop must not try to escape past it. Both counts reach a mantissa of 1000,
+        // but only 999_999_949_999 gets there by rounding; 1_000_000_000_000 divides exactly.
         XCTAssertEqual(formatTokenCount(1_000_000_000_000), "1000B")
+        XCTAssertEqual(formatTokenCount(999_999_949_999), "1000B")
+        // A promotion into the largest unit keeps the sign as well.
+        XCTAssertEqual(formatTokenCount(-999_999_500), "-1B")
     }
 
     func testFormatTokenCountHandlesTheMostNegativeCount() {
