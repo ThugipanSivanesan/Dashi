@@ -1,0 +1,48 @@
+# Division of labour: `.swift-format` owns layout; SwiftLint owns semantics and size/complexity
+# bounds. Any rule here that would duplicate or contradict `.swift-format` is disabled below.
+# Run:  swiftlint lint --strict      (what CI runs)
+#       swiftlint --fix              (autocorrect)
+
+included:
+  - Sources
+  - Tests
+
+excluded:
+  - .build
+
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - closure_spacing
+  - contains_over_first_not_nil
+  - first_where
+  - force_unwrapping
+  - implicit_return
+  - redundant_nil_coalescing
+  - toggle_bool
+
+disabled_rules:
+  - todo # TODO/FIXME are allowed.
+  - line_length # `.swift-format` sets lineLength: 100; a second, laxer number here is ambiguity.
+  - opening_brace # Fires only on swift-format's own output after a wrapped signature or condition.
+  - trailing_comma # Pure layout, and swift-format deliberately leaves trailing commas alone.
+
+# JSON payloads are decoded through nested Decodable types that mirror the response shape
+# (e.g. Line > Payload > Info). Flattening would spread one payload over several top-level types.
+nesting:
+  type_level: 3
+
+file_length:
+  warning: 600 # SwiftLint's default 400 fails on the largest file today (a 463-line test).
+  error: 1000
+
+# Preventive, and written down rather than left implicit: the limit is a decision, so it belongs in
+# the config where it can be argued with.
+cyclomatic_complexity:
+  warning: 10
+  error: 20
+
+force_cast: error
+force_try: error
+
+reporter: "xcode"

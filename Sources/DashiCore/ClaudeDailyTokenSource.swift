@@ -35,8 +35,7 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
         var seen = Set<String>()
         for file in files {
             guard let lines = TokenLog.lines(of: file) else { continue }
-            total =
-                total + Self.aggregate(lines: lines, now: now(), calendar: calendar, seen: &seen)
+            total += Self.aggregate(lines: lines, now: now(), calendar: calendar, seen: &seen)
         }
         return total
     }
@@ -112,15 +111,13 @@ public struct ClaudeDailyTokenSource: DailyTokenSource {
                 decoded.message?.model.flatMap { ModelPricing.rates(forModel: $0, speed: speed) }
             }
 
-            total =
-                total
-                + ProviderDailyTokens(
-                    inputTokens: priced.input,
-                    outputTokens: priced.output,
-                    cacheCreationTokens: cacheCreation,
-                    cacheReadTokens: priced.cacheRead,
-                    costUSD: rates?.cost(of: priced) ?? 0,
-                    unpricedTokens: rates == nil ? priced.total : 0)
+            total += ProviderDailyTokens(
+                inputTokens: priced.input,
+                outputTokens: priced.output,
+                cacheCreationTokens: cacheCreation,
+                cacheReadTokens: priced.cacheRead,
+                costUSD: rates?.cost(of: priced) ?? 0,
+                unpricedTokens: rates == nil ? priced.total : 0)
         }
         return total
     }

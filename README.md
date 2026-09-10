@@ -146,10 +146,11 @@ are in **[SECURITY.md](SECURITY.md)**.
 Requires macOS with **Xcode** installed (the Command Line Tools alone lack XCTest).
 
 ```sh
-# one-time
+# one-time (the pre-commit hooks and the local gate both run SwiftLint)
+brew install swiftlint
 pre-commit install
 
-# the full local gate (format-lint + build + test) — mirrors CI
+# the full local gate (format-lint + swiftlint + build + test + coverage) — mirrors CI
 bash Scripts/check.sh
 
 # run the app (quick dev loop)

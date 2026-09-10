@@ -44,8 +44,7 @@ public struct CodexDailyTokenSource: DailyTokenSource {
         var seen = Set<String>()
         for file in files {
             guard let lines = TokenLog.lines(of: file) else { continue }
-            total =
-                total + Self.aggregate(lines: lines, now: now(), calendar: calendar, seen: &seen)
+            total += Self.aggregate(lines: lines, now: now(), calendar: calendar, seen: &seen)
         }
         return total
     }
@@ -94,15 +93,13 @@ public struct CodexDailyTokenSource: DailyTokenSource {
             // token is reported as unpriced so the UI shows "—" rather than a misleading $0.00.
             let fresh = max(0, input - cached)
             let output = usage.outputTokens ?? 0
-            total =
-                total
-                + ProviderDailyTokens(
-                    inputTokens: fresh,
-                    outputTokens: output,
-                    cacheCreationTokens: 0,
-                    cacheReadTokens: cached,
-                    costUSD: 0,
-                    unpricedTokens: fresh + output + cached)
+            total += ProviderDailyTokens(
+                inputTokens: fresh,
+                outputTokens: output,
+                cacheCreationTokens: 0,
+                cacheReadTokens: cached,
+                costUSD: 0,
+                unpricedTokens: fresh + output + cached)
         }
         return total
     }

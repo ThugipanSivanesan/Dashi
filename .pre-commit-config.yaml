@@ -16,6 +16,14 @@ repos:
         entry: swift format lint --strict
         language: system
         types: [swift]
+      # pass_filenames: false so the repo's .swiftlint.yml `included:` paths and the nested
+      # Tests/.swiftlint.yml govern, rather than the staged file list.
+      - id: swiftlint
+        name: swiftlint (strict)
+        entry: swiftlint lint --strict
+        language: system
+        types: [swift]
+        pass_filenames: false
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
