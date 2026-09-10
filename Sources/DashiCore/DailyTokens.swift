@@ -80,7 +80,7 @@ public protocol DailyTokenSource: Sendable {
 /// Formats a token count compactly for the menu, e.g. `823`, `5.6K`, `340K`, `1.2M`, `3.4B`.
 public func formatTokenCount(_ count: Int) -> String {
     let sign = count < 0 ? "-" : ""
-    let value = abs(count)
+    let value = count.magnitude
     if value < 1_000 { return "\(sign)\(value)" }
 
     // Round first, then pick the unit. Choosing the unit from the raw count instead lets the
