@@ -83,20 +83,25 @@ public protocol DailyTokenSource: Sendable {
 }
 
 /// Formats a token count compactly for the menu, e.g. `823`, `5.6K`, `340K`, `1.2M`, `3.4B`.
+///
+/// Width is bounded below `B` and unbounded at it. The mantissa stays in `[1, 1000)` for `K` and
+/// `M`, so the widest they print is six characters (`999.9K`, `999.9M`). `B` is the largest unit,
+/// so it absorbs whatever is left and widens with the count: `1000B`, `1111.8B`, and
+/// `-9223372036.9B` at `Int.min` — 14 characters, the widest this function produces.
 public func formatTokenCount(_ count: Int) -> String {
     let sign = count < 0 ? "-" : ""
     let value = count.magnitude
     if value < 1_000 { return "\(sign)\(value)" }
 
     // Round first, then pick the unit. Choosing the unit from the raw count instead lets the
-    // rounding that follows push the scaled number into the next unit (999_950 → `1000K`), which
-    // is both four digits wide and a unit this function promises not to use — so promote instead.
+    // rounding that follows carry the mantissa to 1000 (999_950 → `1000K`), taking it out of the
+    // `[1, 1000)` range that every unit but the terminal one holds to — so promote instead.
     for unit in tokenUnits.dropLast() {
         let scaled = roundedToTenth(Double(value) / unit.divisor)
         if scaled < 1_000 { return sign + compactToken(scaled, unit.suffix) }
     }
-    // `B` is the largest unit there is: at the top of the range four digits are correct and
-    // there is nothing left to promote into, so the last unit always accepts the value.
+    // `B` is the largest unit there is: nothing is left to promote into, so it accepts the
+    // mantissa at whatever width it lands — the unbounded case the doc comment describes.
     let terminal = tokenUnits[tokenUnits.count - 1]
     return sign + compactToken(roundedToTenth(Double(value) / terminal.divisor), terminal.suffix)
 }
@@ -109,8 +114,8 @@ private func roundedToTenth(_ value: Double) -> Double { (value * 10).rounded() 
 
 /// Rounds to one decimal and drops a trailing `.0`, so `340.0 → "340K"` but `5.6 → "5.6K"`.
 ///
-/// Callers already round to one decimal to choose the unit; rounding again here is harmless
-/// (the operation is idempotent) and keeps the helper correct for a raw scaled value too.
+/// `formatTokenCount` has already rounded to a tenth, so the rounding below is a no-op for every
+/// value it passes; it stays so the helper is also correct for a raw, unrounded quotient.
 private func compactToken(_ scaled: Double, _ suffix: String) -> String {
     let rounded = roundedToTenth(scaled)
     if rounded == rounded.rounded() {
