@@ -98,7 +98,8 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         } catch {
             throw LimitError.requestFailed("decode: \(error.localizedDescription)")
         }
-        let windows = (decoded.limits ?? []).compactMap(limitWindow)
+        let entries = (decoded.limits?.value ?? []).compactMap(\.value)
+        let windows = entries.compactMap(limitWindow)
         if !windows.isEmpty {
             return SubscriptionLimits(windows: windows, fetchedAt: fetchedAt)
         }
@@ -135,7 +136,7 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
 private struct UsageResponse: Decodable {
     let fiveHour: Window?
     let sevenDay: Window?
-    let limits: [Entry]?
+    let limits: Lenient<[Lenient<Entry>]>?
 
     struct Window: Decodable {
         let utilization: Double?
@@ -155,6 +156,16 @@ private struct UsageResponse: Decodable {
         struct Model: Decodable {
             let displayName: String?
         }
+    }
+}
+
+/// Decodes `T` when the payload matches it, and yields a `nil` ``value`` instead of throwing when
+/// it does not.
+private struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+
+    init(from decoder: any Decoder) throws {
+        value = try? T(from: decoder)
     }
 }
 
