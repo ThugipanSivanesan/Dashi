@@ -90,8 +90,14 @@ struct LimitView: View {
             }
 
             Divider()
-            Button("Check for Updates…") { updater.checkForUpdates() }
-                .disabled(!updater.canCheckForUpdates)
+            HStack {
+                Button("Check for Updates…") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+                Spacer()
+                Text(AppVersion.label())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button("Quit Dashi") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
         }
