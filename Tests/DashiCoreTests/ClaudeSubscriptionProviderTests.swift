@@ -26,40 +26,6 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
             credentials: credentials, transport: transport, now: { epoch })
     }
 
-    func testDecodeUsageParsesWindows() throws {
-        let json = """
-            {"five_hour":{"utilization":73,"resets_at":"2026-06-29T19:42:00Z"},
-             "seven_day":{"utilization":41.5,"resets_at":null}}
-            """
-        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        let fiveHour = try XCTUnwrap(limits.fiveHour)
-        let sevenDay = try XCTUnwrap(limits.sevenDay)
-        XCTAssertEqual(fiveHour.utilization, 73)
-        XCTAssertNotNil(fiveHour.resetsAt)
-        XCTAssertEqual(sevenDay.utilization, 41.5)
-        XCTAssertNil(sevenDay.resetsAt)
-        XCTAssertEqual(limits.fetchedAt, epoch)
-    }
-
-    func testDecodesRealWorldMicrosecondTimestamps() throws {
-        // Shape returned by the live endpoint: microsecond fractional seconds + "+00:00" offset,
-        // plus extra fields we ignore.
-        let json = """
-            {"five_hour":{"utilization":29.0,"resets_at":"2026-06-29T11:00:00.968660+00:00",
-             "limit_dollars":null},"seven_day":{"utilization":3.0,
-             "resets_at":"2026-07-06T03:00:00.968681+00:00"},"member_dashboard_available":false}
-            """
-        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
-        let fiveHour = try XCTUnwrap(limits.fiveHour)
-        let sevenDay = try XCTUnwrap(limits.sevenDay)
-        XCTAssertEqual(fiveHour.utilization, 29)
-        let reset = try XCTUnwrap(fiveHour.resetsAt)
-        let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-29T11:00:00Z"))
-        XCTAssertEqual(reset.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 1.0)
-        XCTAssertEqual(sevenDay.utilization, 3)
-        XCTAssertNotNil(sevenDay.resetsAt)
-    }
-
     func testNotSignedInWhenNoToken() async {
         let provider = provider(
             credentials: StubCredentialsReader(token: nil), transport: http(200))
@@ -172,6 +138,176 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
             check(error)
         } catch {
             XCTFail("unexpected error \(error)", file: file, line: line)
+        }
+    }
+}
+
+final class ClaudeUsageDecodingTests: XCTestCase {
+    private let epoch = Date(timeIntervalSince1970: 1_000_000)
+
+    func testDecodeUsageParsesWindows() throws {
+        let json = """
+            {"five_hour":{"utilization":73,"resets_at":"2026-06-29T19:42:00Z"},
+             "seven_day":{"utilization":41.5,"resets_at":null}}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 73)
+        XCTAssertNotNil(fiveHour.resetsAt)
+        XCTAssertEqual(sevenDay.utilization, 41.5)
+        XCTAssertNil(sevenDay.resetsAt)
+        XCTAssertEqual(limits.fetchedAt, epoch)
+    }
+
+    func testDecodesRealWorldMicrosecondTimestamps() throws {
+        // Shape returned by the live endpoint: microsecond fractional seconds + "+00:00" offset,
+        // plus extra fields we ignore.
+        let json = """
+            {"five_hour":{"utilization":29.0,"resets_at":"2026-06-29T11:00:00.968660+00:00",
+             "limit_dollars":null},"seven_day":{"utilization":3.0,
+             "resets_at":"2026-07-06T03:00:00.968681+00:00"},"member_dashboard_available":false}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        let fiveHour = try XCTUnwrap(limits.fiveHour)
+        let sevenDay = try XCTUnwrap(limits.sevenDay)
+        XCTAssertEqual(fiveHour.utilization, 29)
+        let reset = try XCTUnwrap(fiveHour.resetsAt)
+        let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-06-29T11:00:00Z"))
+        XCTAssertEqual(reset.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 1.0)
+        XCTAssertEqual(sevenDay.utilization, 3)
+        XCTAssertNotNil(sevenDay.resetsAt)
+    }
+
+    /// Reads the session and weekly_all percentages out of the top-level `limits` array when the
+    /// payload carries no legacy `five_hour` / `seven_day` keys.
+    func testDecodeUsageReadsSessionAndWeeklyFromLimitsArray() throws {
+        let json = """
+            {"limits":[
+             {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null},
+             {"kind":"weekly_all","group":"weekly","percent":47,"resets_at":null,"scope":null},
+             {"kind":"weekly_scoped","group":"weekly","percent":83,"resets_at":null,
+              "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}]}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(try XCTUnwrap(limits.fiveHour).utilization, 12)
+        XCTAssertEqual(try XCTUnwrap(limits.sevenDay).utilization, 47)
+    }
+
+    /// Decodes every `limits` entry into a window in payload order, taking percentages from
+    /// `percent` and the scoped window's title from `scope.model.display_name`.
+    func testDecodesEveryLimitsEntryIntoAWindowInPayloadOrder() throws {
+        let json = """
+            {"limits":[
+             {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null},
+             {"kind":"weekly_all","group":"weekly","percent":47,"resets_at":null,"scope":null},
+             {"kind":"weekly_scoped","group":"weekly","percent":83,
+              "resets_at":"2026-09-15T05:00:00.123456+00:00",
+              "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}]}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.kind), [.session, .weekly, .weeklyScoped])
+        XCTAssertEqual(limits.windows.map(\.title), ["5-hour", "Weekly", "Fable"])
+        XCTAssertEqual(limits.windows.map(\.limit.utilization), [12, 47, 83])
+        XCTAssertEqual(try XCTUnwrap(limits.sevenDay).utilization, 47)
+        let reset = try XCTUnwrap(limits.windows.last?.limit.resetsAt)
+        let expected = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-15T05:00:00Z"))
+        XCTAssertEqual(reset.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 1.0)
+    }
+
+    /// Takes all three windows from the `limits` array for a payload that also carries legacy
+    /// `five_hour` and `seven_day` keys holding different percentages.
+    func testLimitsArrayTakesPrecedenceOverLegacyKeys() throws {
+        let json = """
+            {"five_hour":{"utilization":98,"resets_at":null},
+             "seven_day":{"utilization":99,"resets_at":null},
+             "limits":[
+             {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null},
+             {"kind":"weekly_all","group":"weekly","percent":47,"resets_at":null,"scope":null},
+             {"kind":"weekly_scoped","group":"weekly","percent":83,"resets_at":null,
+              "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}]}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.title), ["5-hour", "Weekly", "Fable"])
+        XCTAssertEqual(limits.windows.map(\.limit.utilization), [12, 47, 83])
+    }
+
+    /// Yields only the session and weekly windows, with no placeholder third row, when the `limits`
+    /// array carries no `weekly_scoped` entry.
+    func testLimitsArrayWithoutScopedEntryYieldsTwoWindows() throws {
+        let json = """
+            {"limits":[
+             {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null},
+             {"kind":"weekly_all","group":"weekly","percent":47,"resets_at":null,"scope":null}]}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.kind), [.session, .weekly])
+        XCTAssertEqual(limits.windows.map(\.title), ["5-hour", "Weekly"])
+    }
+
+    /// Falls back to the legacy `five_hour` and `seven_day` keys, titled "5-hour" and "Weekly", for
+    /// a payload that carries no `limits` array.
+    func testLegacyPayloadWithoutLimitsArrayYieldsTheTwoNamedWindows() throws {
+        let json = """
+            {"five_hour":{"utilization":73,"resets_at":null},
+             "seven_day":{"utilization":41.5,"resets_at":null}}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.kind), [.session, .weekly])
+        XCTAssertEqual(limits.windows.map(\.title), ["5-hour", "Weekly"])
+        XCTAssertEqual(limits.windows.map(\.limit.utilization), [73, 41.5])
+    }
+
+    /// Reports a legacy payload carrying only `five_hour` as a single window and a nil `sevenDay`,
+    /// rather than as a 0% weekly window.
+    func testAbsentLegacyWindowYieldsNoWindowRatherThanZeroPercent() throws {
+        let json = #"{"five_hour":{"utilization":73,"resets_at":null}}"#
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.kind), [.session])
+        XCTAssertNil(limits.sevenDay)
+        XCTAssertEqual(try XCTUnwrap(limits.fiveHour).utilization, 73)
+    }
+
+    /// Resolves `sevenDay` to the `weekly_all` window when a higher-percentage scoped window
+    /// precedes it in the `limits` array.
+    func testSevenDayResolvesToWeeklyAllRatherThanAScopedWindow() throws {
+        let json = """
+            {"limits":[
+             {"kind":"weekly_scoped","group":"weekly","percent":83,"resets_at":null,
+              "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}},
+             {"kind":"weekly_all","group":"weekly","percent":47,"resets_at":null,"scope":null}]}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(try XCTUnwrap(limits.sevenDay).utilization, 47)
+        XCTAssertNil(limits.fiveHour)
+    }
+
+    /// Drops an entry with an unrecognised or absent `kind`, and a `weekly_scoped` entry with a
+    /// null scope or a null `display_name`, keeping the rest of the array rather than failing it.
+    func testDropsUnrecognisedKindsAndScopedEntriesWithoutADisplayName() throws {
+        let session = """
+            {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null}
+            """
+        let dropped = [
+            """
+            {"kind":"monthly_all","group":"monthly","percent":9,"resets_at":null,"scope":null}
+            """,
+            """
+            {"group":"weekly","percent":9,"resets_at":null,"scope":null}
+            """,
+            """
+            {"kind":"weekly_scoped","group":"weekly","percent":83,"resets_at":null,"scope":null}
+            """,
+            """
+            {"kind":"weekly_scoped","group":"weekly","percent":83,"resets_at":null,
+             "scope":{"model":{"id":null,"display_name":null},"surface":null}}
+            """,
+        ]
+        for entry in dropped {
+            let json = "{\"limits\":[\(session),\(entry)]}"
+            let limits = try ClaudeSubscriptionProvider.decodeUsage(
+                Data(json.utf8), fetchedAt: epoch)
+            XCTAssertEqual(limits.windows.map(\.kind), [.session], "kept \(entry)")
         }
     }
 }

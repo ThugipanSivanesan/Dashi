@@ -87,33 +87,24 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         return (data, http)
     }
 
-    /// Decodes the `{ "five_hour": {...}, "seven_day": {...} }` payload into ``SubscriptionLimits``.
+    /// Decodes the payload's `limits` array into ``SubscriptionLimits``, falling back to the legacy
+    /// `{ "five_hour": {...}, "seven_day": {...} }` keys when it reports no window.
     static func decodeUsage(_ data: Data, fetchedAt: Date) throws -> SubscriptionLimits {
-        struct Response: Decodable {
-            let fiveHour: Window?
-            let sevenDay: Window?
-            struct Window: Decodable {
-                let utilization: Double?
-                let resetsAt: String?
-            }
-        }
-        let decoded: Response
+        let decoded: UsageResponse
         do {
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
-            decoded = try decoder.decode(Response.self, from: data)
+            decoded = try decoder.decode(UsageResponse.self, from: data)
         } catch {
             throw LimitError.requestFailed("decode: \(error.localizedDescription)")
         }
-        func limit(_ window: Response.Window?) -> RollingLimit {
-            RollingLimit(
-                utilization: window?.utilization ?? 0,
-                resetsAt: window?.resetsAt.flatMap(Self.parseDate)
-            )
+        let windows = (decoded.limits ?? []).compactMap(limitWindow)
+        if !windows.isEmpty {
+            return SubscriptionLimits(windows: windows, fetchedAt: fetchedAt)
         }
         return SubscriptionLimits(
-            fiveHour: limit(decoded.fiveHour),
-            sevenDay: limit(decoded.sevenDay),
+            fiveHour: rollingLimit(decoded.fiveHour),
+            sevenDay: rollingLimit(decoded.sevenDay),
             fetchedAt: fetchedAt
         )
     }
@@ -136,5 +127,62 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
             end = string.index(after: end)
         }
         return plain.date(from: string.replacingCharacters(in: dot..<end, with: ""))
+    }
+}
+
+/// The usage endpoint's payload: the `limits` array of reported windows, and the legacy named
+/// windows that predate it.
+private struct UsageResponse: Decodable {
+    let fiveHour: Window?
+    let sevenDay: Window?
+    let limits: [Entry]?
+
+    struct Window: Decodable {
+        let utilization: Double?
+        let resetsAt: String?
+    }
+
+    struct Entry: Decodable {
+        let kind: String?
+        let percent: Double?
+        let resetsAt: String?
+        let scope: Scope?
+    }
+
+    struct Scope: Decodable {
+        let model: Model?
+
+        struct Model: Decodable {
+            let displayName: String?
+        }
+    }
+}
+
+/// Converts a legacy named window into a ``RollingLimit``, or `nil` when the key is absent.
+private func rollingLimit(_ window: UsageResponse.Window?) -> RollingLimit? {
+    guard let window else { return nil }
+    return RollingLimit(
+        utilization: window.utilization ?? 0,
+        resetsAt: window.resetsAt.flatMap(ClaudeSubscriptionProvider.parseDate)
+    )
+}
+
+/// Maps one `limits` entry onto a titled window, dropping any entry whose kind is unrecognised and
+/// any scoped entry that names no model.
+private func limitWindow(_ entry: UsageResponse.Entry) -> LimitWindow? {
+    let limit = RollingLimit(
+        utilization: entry.percent ?? 0,
+        resetsAt: entry.resetsAt.flatMap(ClaudeSubscriptionProvider.parseDate)
+    )
+    switch entry.kind {
+    case "session":
+        return LimitWindow(title: "5-hour", kind: .session, limit: limit)
+    case "weekly_all":
+        return LimitWindow(title: "Weekly", kind: .weekly, limit: limit)
+    case "weekly_scoped":
+        guard let title = entry.scope?.model?.displayName else { return nil }
+        return LimitWindow(title: title, kind: .weeklyScoped, limit: limit)
+    default:
+        return nil
     }
 }

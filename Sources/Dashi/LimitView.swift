@@ -278,18 +278,14 @@ private struct LimitSection: View {
 
     private func limitsView(_ limits: SubscriptionLimits) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            if let five = limits.fiveHour {
+            ForEach(Array(limits.windows.enumerated()), id: \.offset) { index, window in
                 windowRow(
-                    title: "5-hour", limit: five, prominent: true, liveCountdown: true)
+                    title: window.title,
+                    limit: window.limit,
+                    prominent: index == 0,
+                    liveCountdown: window.kind == .session)
             }
-            if let week = limits.sevenDay {
-                windowRow(
-                    title: "Weekly",
-                    limit: week,
-                    prominent: limits.fiveHour == nil,
-                    liveCountdown: false)
-            }
-            if limits.fiveHour == nil, limits.sevenDay == nil {
+            if limits.windows.isEmpty {
                 message(
                     "No usage limits reported.",
                     systemImage: "gauge.with.dots.needle.bottom.0percent")
