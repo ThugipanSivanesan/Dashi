@@ -13,17 +13,52 @@ public struct RollingLimit: Sendable, Equatable {
     }
 }
 
+/// One reported usage window, with the display title and the kind of allowance it measures.
+public struct LimitWindow: Sendable, Equatable {
+    /// Which allowance a window measures: the session, the whole week, or one model's week.
+    public enum Kind: Sendable, Equatable {
+        case session
+        case weekly
+        case weeklyScoped
+    }
+
+    public let title: String
+    public let kind: Kind
+    public let limit: RollingLimit
+
+    public init(title: String, kind: Kind, limit: RollingLimit) {
+        self.title = title
+        self.kind = kind
+        self.limit = limit
+    }
+}
+
 /// Snapshot of the subscription's rolling limits, as returned by a provider usage endpoint.
-/// A `nil` window means the provider did not report that window.
+/// A window the provider did not report is absent from `windows`.
 public struct SubscriptionLimits: Sendable, Equatable {
-    public let fiveHour: RollingLimit?
-    public let sevenDay: RollingLimit?
+    public let windows: [LimitWindow]
     public let fetchedAt: Date
 
-    public init(fiveHour: RollingLimit?, sevenDay: RollingLimit?, fetchedAt: Date) {
-        self.fiveHour = fiveHour
-        self.sevenDay = sevenDay
+    /// The session window, or `nil` when the provider reported none.
+    public var fiveHour: RollingLimit? { windows.first { $0.kind == .session }?.limit }
+    /// The whole-subscription weekly window, ignoring any per-model weekly window.
+    public var sevenDay: RollingLimit? { windows.first { $0.kind == .weekly }?.limit }
+
+    public init(windows: [LimitWindow], fetchedAt: Date) {
+        self.windows = windows
         self.fetchedAt = fetchedAt
+    }
+
+    /// Builds the two named windows a provider reporting only a session and a weekly allowance has,
+    /// omitting either window whose limit is `nil`.
+    public init(fiveHour: RollingLimit?, sevenDay: RollingLimit?, fetchedAt: Date) {
+        self.init(
+            windows: [
+                fiveHour.map { LimitWindow(title: "5-hour", kind: .session, limit: $0) },
+                sevenDay.map { LimitWindow(title: "Weekly", kind: .weekly, limit: $0) },
+            ].compactMap { $0 },
+            fetchedAt: fetchedAt
+        )
     }
 }
 
