@@ -310,4 +310,42 @@ final class ClaudeUsageDecodingTests: XCTestCase {
             XCTAssertEqual(limits.windows.map(\.kind), [.session], "kept \(entry)")
         }
     }
+
+    /// Keeps the valid session window when a sibling `limits` entry carries a string `percent`, a
+    /// string `scope`, or is null, a bare string or a bare number rather than an object.
+    func testKeepsValidEntriesWhenASiblingEntryFailsToDecode() throws {
+        let session = """
+            {"kind":"session","group":"session","percent":12,"resets_at":null,"scope":null}
+            """
+        let malformed = [
+            """
+            {"kind":"weekly_all","group":"weekly","percent":"12","resets_at":null,"scope":null}
+            """,
+            """
+            {"kind":"weekly_all","group":"weekly","percent":9,"resets_at":null,"scope":"fable"}
+            """,
+            "null",
+            "\"weekly_all\"",
+            "9",
+        ]
+        for entry in malformed {
+            let json = "{\"limits\":[\(session),\(entry)]}"
+            let limits = try ClaudeSubscriptionProvider.decodeUsage(
+                Data(json.utf8), fetchedAt: epoch)
+            XCTAssertEqual(limits.windows.map(\.kind), [.session], "kept \(entry)")
+        }
+    }
+
+    /// Falls back to the legacy `five_hour` and `seven_day` windows when `limits` is an object
+    /// rather than an array.
+    func testFallsBackToLegacyKeysWhenLimitsIsNotAnArray() throws {
+        let json = """
+            {"five_hour":{"utilization":73,"resets_at":null},
+             "seven_day":{"utilization":41.5,"resets_at":null},
+             "limits":{"session":{"percent":12}}}
+            """
+        let limits = try ClaudeSubscriptionProvider.decodeUsage(Data(json.utf8), fetchedAt: epoch)
+        XCTAssertEqual(limits.windows.map(\.kind), [.session, .weekly])
+        XCTAssertEqual(limits.windows.map(\.limit.utilization), [73, 41.5])
+    }
 }
