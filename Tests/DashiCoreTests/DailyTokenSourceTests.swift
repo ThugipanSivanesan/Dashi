@@ -196,4 +196,72 @@ final class DailyTokenSourceTests: XCTestCase {
         XCTAssertEqual(source.tokensToday(), .zero)
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
     }
+
+    /// Sums two Claude transcripts in separate project directories into one day's total.
+    func testClaudeSourceSumsTokensAcrossFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+
+        for (project, id, input, output) in [("alpha", "a", 100, 20), ("beta", "b", 7, 3)] {
+            let directory = root.appendingPathComponent(project)
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let line = """
+                {"type":"assistant","timestamp":"\(today)","requestId":"r-\(id)",\
+                "message":{"id":"m-\(id)","usage":{"input_tokens":\(input),\
+                "output_tokens":\(output)}}}
+                """
+            try Data((line + "\n").utf8)
+                .write(to: directory.appendingPathComponent("session.jsonl"))
+        }
+
+        let fixedNow = now
+        let source = ClaudeDailyTokenSource(
+            projectsDirectory: root, now: { fixedNow }, calendar: calendar)
+        XCTAssertEqual(
+            source.tokensToday(),
+            ProviderDailyTokens(inputTokens: 107, outputTokens: 23, unpricedTokens: 130))
+    }
+
+    /// Sums two Codex rollouts in separate session directories into one day's total.
+    func testCodexSourceSumsTokensAcrossFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+
+        let later = stamp(now.addingTimeInterval(60))
+        for (session, time, input, cached, output) in [
+            ("session-a", today, 100, 0, 20), ("session-b", later, 40, 10, 5),
+        ] {
+            let directory = root.appendingPathComponent(session)
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true)
+            let line = """
+                {"timestamp":"\(time)","payload":{"type":"token_count","info":\
+                {"last_token_usage":{"input_tokens":\(input),"cached_input_tokens":\(cached),\
+                "output_tokens":\(output)}}}}
+                """
+            try Data((line + "\n").utf8)
+                .write(to: directory.appendingPathComponent("rollout.jsonl"))
+        }
+
+        let fixedNow = now
+        let source = CodexDailyTokenSource(
+            sessionsDirectory: root, now: { fixedNow }, calendar: calendar)
+        XCTAssertEqual(
+            source.tokensToday(),
+            ProviderDailyTokens(
+                inputTokens: 130, outputTokens: 25, cacheReadTokens: 10, unpricedTokens: 165))
+    }
+
+    /// Returns nil, not a zeroed total, when the Codex sessions root does not exist.
+    func testCodexSourceReportsMissingDirectoryAsUnavailable() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-\(UUID().uuidString)")
+        let fixedNow = now
+        let source = CodexDailyTokenSource(
+            sessionsDirectory: root, now: { fixedNow }, calendar: calendar)
+        XCTAssertNil(source.tokensToday())
+    }
 }
