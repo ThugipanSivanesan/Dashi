@@ -197,16 +197,12 @@ final class DailyTokenSourceTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
     }
 
-    /// Pins the per-file accumulation in ``ClaudeDailyTokenSource/tokensToday()``: two counted
-    /// transcripts sum, rather than the last one read standing for the day. File enumeration order
-    /// is unspecified, so the sum is the only order-independent oracle.
+    /// Sums two Claude transcripts in separate project directories into one day's total.
     func testClaudeSourceSumsTokensAcrossFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("claude-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
 
-        // Distinct ids per file: the `seen` set is shared across files, so a reused
-        // requestId/message.id pair would drop the second turn as a duplicate.
         for (project, id, input, output) in [("alpha", "a", 100, 20), ("beta", "b", 7, 3)] {
             let directory = root.appendingPathComponent(project)
             try FileManager.default.createDirectory(
@@ -228,15 +224,12 @@ final class DailyTokenSourceTests: XCTestCase {
             ProviderDailyTokens(inputTokens: 107, outputTokens: 23, unpricedTokens: 130))
     }
 
-    /// Pins the per-file accumulation in ``CodexDailyTokenSource/tokensToday()``: two counted
-    /// rollouts sum, rather than the last one read standing for the day.
+    /// Sums two Codex rollouts in separate session directories into one day's total.
     func testCodexSourceSumsTokensAcrossFiles() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-\(UUID().uuidString)")
         addTeardownBlock { try? FileManager.default.removeItem(at: root) }
 
-        // Distinct turns per file: the shared `seen` set keys on timestamp|input|output, so two
-        // identical turns would collapse into one and let a dropped file pass unnoticed.
         let later = stamp(now.addingTimeInterval(60))
         for (session, time, input, cached, output) in [
             ("session-a", today, 100, 0, 20), ("session-b", later, 40, 10, 5),
@@ -256,16 +249,13 @@ final class DailyTokenSourceTests: XCTestCase {
         let fixedNow = now
         let source = CodexDailyTokenSource(
             sessionsDirectory: root, now: { fixedNow }, calendar: calendar)
-        // Fresh input is 100 + (40 - 10 cached); Codex turns are never priced, so every token is
-        // reported unpriced.
         XCTAssertEqual(
             source.tokensToday(),
             ProviderDailyTokens(
                 inputTokens: 130, outputTokens: 25, cacheReadTokens: 10, unpricedTokens: 165))
     }
 
-    /// A missing sessions root reports unavailable, not a day of zero usage — the distinction
-    /// ``DailyTokens`` documents, guarded separately from the Claude source's own root check.
+    /// Returns nil, not a zeroed total, when the Codex sessions root does not exist.
     func testCodexSourceReportsMissingDirectoryAsUnavailable() {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-\(UUID().uuidString)")

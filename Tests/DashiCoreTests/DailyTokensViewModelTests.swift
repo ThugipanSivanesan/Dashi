@@ -2,7 +2,7 @@ import XCTest
 
 @testable import DashiCore
 
-/// Source with a canned answer; `nil` stands for logs that were absent or unreadable.
+/// Returns a canned total, or nil for logs that were absent or unreadable.
 private struct StubDailyTokenSource: DailyTokenSource {
     let tokens: ProviderDailyTokens?
     func tokensToday() -> ProviderDailyTokens? { tokens }
@@ -22,8 +22,7 @@ final class DailyTokensViewModelTests: XCTestCase {
             now: { stamp })
     }
 
-    /// Pins what `load()` publishes: each source's own total on its own field, stamped with the
-    /// injected clock. `DailyTokens` is `Equatable`, so one comparison is the whole snapshot.
+    /// Publishes each source's total on its own field, stamped with the injected clock.
     func testLoadPublishesBothProvidersAndStampsFetchedAt() async {
         let claude = ProviderDailyTokens(inputTokens: 100, outputTokens: 20, unpricedTokens: 120)
         let codex = ProviderDailyTokens(inputTokens: 7, outputTokens: 3, unpricedTokens: 10)
@@ -36,9 +35,7 @@ final class DailyTokensViewModelTests: XCTestCase {
             model.tokens, DailyTokens(claude: claude, codex: codex, fetchedAt: fetchedAt))
     }
 
-    /// An unavailable source reaches the snapshot as `nil` on its own field, never flattened to
-    /// `.zero`, keeping the distinction ``DailyTokens`` documents. Both sides are checked because
-    /// either field could lose it alone.
+    /// Keeps an unavailable source as nil on the snapshot, checking each side in turn.
     func testLoadKeepsAnUnavailableSourceNil() async {
         let used = ProviderDailyTokens(inputTokens: 40, outputTokens: 10, unpricedTokens: 50)
         let cases: [(claude: ProviderDailyTokens?, codex: ProviderDailyTokens?)] = [
