@@ -87,7 +87,9 @@ public enum ModelPricing {
     /// Sonnet 5 carries a reduced introductory rate through 2026-08-31; we bill it at list price so
     /// the estimate doesn't silently become wrong the day the promotion ends.
     private static let anthropic: [String: ModelRates] = [
+        "claude-fable-5-1": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-fable-5": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
+        "claude-mythos-5-1": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-mythos-5": ModelRates(inputPerMTok: 10, outputPerMTok: 50),
         "claude-opus-5": ModelRates(inputPerMTok: 5, outputPerMTok: 25),
         "claude-opus-4-8": ModelRates(inputPerMTok: 5, outputPerMTok: 25),

@@ -44,6 +44,19 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(dated?.outputPerMTok, 25)
     }
 
+    func testFable51AndMythos51ArePricedAtTheirListRates() {
+        // The 5.1 successors list at $10/$50, plain id and dated snapshot alike.
+        let fable = ModelPricing.rates(forModel: "claude-fable-5-1")
+        XCTAssertEqual(fable?.inputPerMTok, 10)
+        XCTAssertEqual(fable?.outputPerMTok, 50)
+        let mythos = ModelPricing.rates(forModel: "claude-mythos-5-1")
+        XCTAssertEqual(mythos?.inputPerMTok, 10)
+        XCTAssertEqual(mythos?.outputPerMTok, 50)
+        let dated = ModelPricing.rates(forModel: "claude-fable-5-1-20260901")
+        XCTAssertEqual(dated?.inputPerMTok, 10)
+        XCTAssertEqual(dated?.outputPerMTok, 50)
+    }
+
     func testUnknownModelHasNoRates() {
         XCTAssertNil(ModelPricing.rates(forModel: "gpt-5.5"))
         XCTAssertNil(ModelPricing.rates(forModel: "claude-opus-4-5"))
@@ -97,6 +110,10 @@ final class ModelPricingTests: XCTestCase {
         let sonnet = ModelPricing.rates(forModel: "claude-sonnet-5", speed: .fast)
         XCTAssertEqual(sonnet?.inputPerMTok, 3)
         XCTAssertEqual(sonnet?.outputPerMTok, 15)
+        // Fable 5.1 offers no fast mode, so a fast request bills at its standard $10/$50.
+        let fable = ModelPricing.rates(forModel: "claude-fable-5-1", speed: .fast)
+        XCTAssertEqual(fable?.inputPerMTok, 10)
+        XCTAssertEqual(fable?.outputPerMTok, 50)
         // An unknown model stays unknown regardless of speed.
         XCTAssertNil(ModelPricing.rates(forModel: "claude-from-the-future", speed: .fast))
     }
