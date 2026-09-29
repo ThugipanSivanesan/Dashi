@@ -8,6 +8,8 @@ public enum LimitState: Equatable, Sendable {
     case needsConsent
     case notSignedIn
     case needsReauth
+    /// The user refused the Keychain prompt; only a manual retry reads again.
+    case keychainDenied
     case failed(String)
 }
 
@@ -17,7 +19,7 @@ public enum LimitState: Equatable, Sendable {
 ///   is near-live, but coalesces rapid re-opens (``popupMinInterval``) and honors a real rate limit.
 /// - ``manual``: the user tapped refresh. Bypasses voluntary spacing and defers to a rate limit only
 ///   up to ``manualRateLimitCap``, so a long server `Retry-After` can't leave it a dead button.
-public enum FetchReason: Sendable {
+public enum FetchReason: Equatable, Sendable {
     case scheduled
     case popupOpened
     case manual
@@ -141,6 +143,12 @@ public final class LimitViewModel {
             nextAllowedFetch = now().addingTimeInterval(backoff.nextDelay(after: .terminal))
             return .terminal
         }
+        // Only a manual retry reads the Keychain again; the window advances so `poll()` won't spin.
+        if state == .keychainDenied, reason != .manual {
+            lastOutcome = .terminal
+            nextAllowedFetch = now().addingTimeInterval(backoff.nextDelay(after: .terminal))
+            return .terminal
+        }
         // Throttle per reason; skipping reuses the last outcome and cached state. Safe to return
         // without advancing the window: the skip only happens when the window is already in the
         // future, and the coalesce defers to an in-flight call that will advance it itself.
@@ -209,6 +217,10 @@ public final class LimitViewModel {
         } catch LimitError.needsReauth {
             state = .needsReauth
             log?.info("usage fetch: needs reauth")
+            return .terminal
+        } catch LimitError.keychainDenied {
+            state = .keychainDenied
+            log?.info("usage fetch: keychain access denied")
             return .terminal
         } catch LimitError.rateLimited(let retryAfter) {
             // Prefer the last good reading; if we've never loaded, stay on the spinner (we're still

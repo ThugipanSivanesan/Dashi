@@ -21,6 +21,14 @@ public struct ClaudeOAuthToken: Sendable, Equatable {
 
 public enum CredentialsError: Error, Equatable {
     case keychain(OSStatus)
+
+    /// Whether the status reports a Keychain prompt the user refused, rather than one never shown.
+    public var isAccessDenied: Bool {
+        switch self {
+        case .keychain(let status):
+            return status == errSecUserCanceled || status == errSecAuthFailed
+        }
+    }
 }
 
 /// Reads the Claude Code OAuth token. Abstracted so tests use a stub reader and never touch the

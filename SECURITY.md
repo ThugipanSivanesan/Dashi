@@ -23,7 +23,8 @@ public disclosure.
 ### Claude subscription gauge (personal / experimental)
 
 - Reads the OAuth token that **Claude Code** already stores in your login Keychain (item
-  `Claude Code-credentials`). macOS prompts you to grant Dashi access the first time.
+  `Claude Code-credentials`). macOS prompts you to grant Dashi access the first time. If you deny
+  access, Dashi stops asking until you press **Try again** or refresh in the popup.
 - Used **read-only** to call the usage endpoint. Dashi keeps it **in memory only** while it is
   valid, so the Keychain is read about once per launch; it **never writes it to disk or logs it**,
   and reads it again when it expires or the endpoint rejects it.
