@@ -24,8 +24,9 @@ public disclosure.
 
 - Reads the OAuth token that **Claude Code** already stores in your login Keychain (item
   `Claude Code-credentials`). macOS prompts you to grant Dashi access the first time.
-- Used **read-only** to call the usage endpoint. Dashi **never stores its own copy, writes it to
-  disk, or logs it** — the token is read transiently at the point of use.
+- Used **read-only** to call the usage endpoint. Dashi keeps it **in memory only** while it is
+  valid, so the Keychain is read about once per launch; it **never writes it to disk or logs it**,
+  and reads it again when it expires or the endpoint rejects it.
 - ⚠️ **Terms-of-Service note:** reusing a subscription token outside official Anthropic clients is a
   grey area and may violate Anthropic's Terms. This feature is for **personal use, at your own
   risk**, and is **not recommended for redistribution**. It can also break without notice if the

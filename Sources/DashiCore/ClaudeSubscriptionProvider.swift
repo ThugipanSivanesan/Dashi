@@ -6,7 +6,7 @@ public typealias HTTPTransport = @Sendable (URLRequest) async throws -> (Data, H
 /// Reads the Claude subscription's rolling limits from the OAuth usage endpoint that Claude Code's
 /// `/usage` command uses. Personal-use, read-only: reuses the locally-stored Claude Code OAuth token.
 public struct ClaudeSubscriptionProvider: LimitProvider {
-    private let credentials: any ClaudeCredentialsReading
+    private let cache: ClaudeTokenCache
     private let transport: HTTPTransport
     private let endpoint: URL
     private let now: @Sendable () -> Date
@@ -17,7 +17,7 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         endpoint: URL = URL(string: "https://api.anthropic.com/api/oauth/usage")!,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
-        self.credentials = credentials
+        self.cache = ClaudeTokenCache(reader: credentials, now: now)
         self.transport = transport
         self.endpoint = endpoint
         self.now = now
@@ -37,17 +37,42 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         }
     }
 
+    /// The statuses that mean the endpoint refused the token we sent.
+    static let rejectionStatuses: Set<Int> = [401, 403]
+
     public func currentLimits() async throws -> SubscriptionLimits {
         try Self.validateEndpoint(endpoint)
 
-        let token: ClaudeOAuthToken?
+        guard let sent = try readToken() else { throw LimitError.notSignedIn }
+        let (data, response) = try await send(sent.token)
+        guard Self.rejectionStatuses.contains(response.statusCode) else {
+            return try limits(from: data, response: response)
+        }
+
+        cache.invalidate()
+        guard sent.isCached else { throw LimitError.needsReauth }
+        guard let reread = try readToken() else { throw LimitError.notSignedIn }
+        guard reread.token != sent.token else { throw LimitError.needsReauth }
+
+        let (retryData, retryResponse) = try await send(reread.token)
+        guard !Self.rejectionStatuses.contains(retryResponse.statusCode) else {
+            cache.invalidate()
+            throw LimitError.needsReauth
+        }
+        return try limits(from: retryData, response: retryResponse)
+    }
+
+    /// Reads the token through the cache, reporting a reader failure as a failed request.
+    private func readToken() throws -> (token: ClaudeOAuthToken, isCached: Bool)? {
         do {
-            token = try credentials.currentToken()
+            return try cache.token()
         } catch {
             throw LimitError.requestFailed("credentials: \(error)")
         }
-        guard let token else { throw LimitError.notSignedIn }
+    }
 
+    /// Requests the usage endpoint with the token as the bearer credential.
+    private func send(_ token: ClaudeOAuthToken) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
@@ -56,21 +81,22 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let data: Data
-        let response: HTTPURLResponse
         do {
-            (data, response) = try await transport(request)
+            return try await transport(request)
         } catch let error as LimitError {
             throw error
         } catch {
             throw LimitError.requestFailed(error.localizedDescription)
         }
+    }
 
+    /// Turns a response the endpoint did not reject into limits, throwing for any status but 200.
+    private func limits(
+        from data: Data, response: HTTPURLResponse
+    ) throws -> SubscriptionLimits {
         switch response.statusCode {
         case 200:
             return try Self.decodeUsage(data, fetchedAt: now())
-        case 401, 403:
-            throw LimitError.needsReauth
         case 429:
             throw LimitError.rateLimited(retryAfter: parseRetryAfter(response, now: now()))
         default:

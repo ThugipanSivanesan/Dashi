@@ -142,6 +142,202 @@ final class ClaudeSubscriptionProviderTests: XCTestCase {
     }
 }
 
+final class ClaudeTokenCacheTests: XCTestCase {
+    private let epoch = Date(timeIntervalSince1970: 1_000_000)
+
+    private func provider(
+        credentials: any ClaudeCredentialsReading, transport: @escaping HTTPTransport
+    ) -> ClaudeSubscriptionProvider {
+        let epoch = epoch
+        return ClaudeSubscriptionProvider(
+            credentials: credentials, transport: transport, now: { epoch })
+    }
+
+    /// Reads the token once over three fetches when it carries no expiry or one after `now`, and
+    /// once per fetch when its expiry is at or before `now`.
+    func testCachesTheTokenUntilItsExpiry() async throws {
+        let rows: [(expiresAt: Date?, reads: Int)] = [
+            (nil, 1),
+            (epoch.addingTimeInterval(60), 1),
+            (epoch, 3),
+            (epoch.addingTimeInterval(-60), 3),
+        ]
+        for row in rows {
+            let reader = ScriptedCredentialsReader([
+                .success(ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: row.expiresAt))
+            ])
+            let transport = ScriptedTransport([200])
+            let provider = provider(credentials: reader, transport: transport.transport)
+            for _ in 0..<3 { _ = try await provider.currentLimits() }
+            XCTAssertEqual(reader.reads, row.reads, "expiry \(String(describing: row.expiresAt))")
+        }
+    }
+
+    /// Reads again on the next fetch after the reader threw, and after it returned no token.
+    func testAReadThatThrowsOrReturnsNoTokenIsNotCached() async throws {
+        let failures: [Result<ClaudeOAuthToken?, any Error>] = [
+            .failure(CredentialsError.keychain(-25300)),
+            .success(nil),
+        ]
+        for failure in failures {
+            let token = ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: nil)
+            let reader = ScriptedCredentialsReader([failure, .success(token)])
+            let transport = ScriptedTransport([200])
+            let provider = provider(credentials: reader, transport: transport.transport)
+            do {
+                _ = try await provider.currentLimits()
+                XCTFail("expected the first fetch to throw")
+            } catch is LimitError {}
+            _ = try await provider.currentLimits()
+            XCTAssertEqual(reader.reads, 2)
+        }
+    }
+
+    /// Retries a cached token's 401 once with a freshly read different token, returning the limits
+    /// that retry responds with and sending it as the retry's bearer.
+    func testRejectedCachedTokenIsRetriedOnceWithAFreshToken() async throws {
+        let reader = ScriptedCredentialsReader([
+            .success(ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: nil)),
+            .success(ClaudeOAuthToken(accessToken: Secret("b"), expiresAt: nil)),
+        ])
+        let transport = ScriptedTransport([200, 401, 200])
+        let provider = provider(credentials: reader, transport: transport.transport)
+        _ = try await provider.currentLimits()
+        let limits = try await provider.currentLimits()
+        XCTAssertEqual(try XCTUnwrap(limits.fiveHour).utilization, 10)
+        XCTAssertEqual(reader.reads, 2)
+        XCTAssertEqual(transport.authorizations, ["Bearer a", "Bearer a", "Bearer b"])
+    }
+
+    /// Reports needsReauth without a second request when the re-read token equals the rejected one.
+    func testUnchangedTokenAfterA401IsNotRetried() async throws {
+        let reader = ScriptedCredentialsReader([
+            .success(ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: nil))
+        ])
+        let transport = ScriptedTransport([200, 401])
+        let provider = provider(credentials: reader, transport: transport.transport)
+        _ = try await provider.currentLimits()
+        await assertNeedsReauth(provider)
+        XCTAssertEqual(reader.reads, 2)
+        XCTAssertEqual(transport.authorizations, ["Bearer a", "Bearer a"])
+    }
+
+    /// Keeps the cache dropped when the retry is rejected too, so the fetch after it reads again
+    /// and sends the newest token.
+    func testRejectedRetryLeavesNothingCached() async throws {
+        let reader = ScriptedCredentialsReader([
+            .success(ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: nil)),
+            .success(ClaudeOAuthToken(accessToken: Secret("b"), expiresAt: nil)),
+            .success(ClaudeOAuthToken(accessToken: Secret("c"), expiresAt: nil)),
+        ])
+        let transport = ScriptedTransport([200, 401, 401, 200])
+        let provider = provider(credentials: reader, transport: transport.transport)
+        _ = try await provider.currentLimits()
+        await assertNeedsReauth(provider)
+        _ = try await provider.currentLimits()
+        XCTAssertEqual(reader.reads, 3)
+        XCTAssertEqual(
+            transport.authorizations, ["Bearer a", "Bearer a", "Bearer b", "Bearer c"])
+    }
+
+    /// Reports needsReauth on a 401 for a token just read from the reader, without reading or
+    /// requesting a second time.
+    func testFreshlyReadTokenRejectedOnTheFirstFetchIsNotRetried() async {
+        let reader = ScriptedCredentialsReader([
+            .success(ClaudeOAuthToken(accessToken: Secret("a"), expiresAt: nil)),
+            .success(ClaudeOAuthToken(accessToken: Secret("b"), expiresAt: nil)),
+        ])
+        let transport = ScriptedTransport([401, 200])
+        let provider = provider(credentials: reader, transport: transport.transport)
+        await assertNeedsReauth(provider)
+        XCTAssertEqual(reader.reads, 1)
+        XCTAssertEqual(transport.authorizations, ["Bearer a"])
+    }
+
+    // MARK: - Helpers
+
+    private func assertNeedsReauth(
+        _ provider: ClaudeSubscriptionProvider,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            _ = try await provider.currentLimits()
+            XCTFail("expected throw", file: file, line: line)
+        } catch let error as LimitError {
+            XCTAssertEqual(error, .needsReauth, file: file, line: line)
+        } catch {
+            XCTFail("unexpected error \(error)", file: file, line: line)
+        }
+    }
+}
+
+private let usageBody =
+    #"{"five_hour":{"utilization":10,"resets_at":null},"seven_day":{"utilization":5,"resets_at":null}}"#
+
+/// Credentials reader that counts its reads and returns the scripted results in order, repeating
+/// the last one.
+private final class ScriptedCredentialsReader: ClaudeCredentialsReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private let script: [Result<ClaudeOAuthToken?, any Error>]
+    private var calls = 0
+
+    init(_ script: [Result<ClaudeOAuthToken?, any Error>]) {
+        self.script = script
+    }
+
+    var reads: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+
+    func currentToken() throws -> ClaudeOAuthToken? {
+        lock.lock()
+        let result = script[min(calls, script.count - 1)]
+        calls += 1
+        lock.unlock()
+        return try result.get()
+    }
+}
+
+/// Transport that answers with the scripted statuses in order, repeating the last one, and records
+/// every request's Authorization header.
+private final class ScriptedTransport: @unchecked Sendable {
+    private let lock = NSLock()
+    private let statuses: [Int]
+    private var calls = 0
+    private var seen: [String] = []
+
+    init(_ statuses: [Int]) {
+        self.statuses = statuses
+    }
+
+    var authorizations: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return seen
+    }
+
+    var transport: HTTPTransport {
+        { request in
+            let status = self.record(request.value(forHTTPHeaderField: "Authorization") ?? "")
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            return (Data(usageBody.utf8), response)
+        }
+    }
+
+    private func record(_ authorization: String) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let status = statuses[min(calls, statuses.count - 1)]
+        calls += 1
+        seen.append(authorization)
+        return status
+    }
+}
+
 final class ClaudeUsageDecodingTests: XCTestCase {
     private let epoch = Date(timeIntervalSince1970: 1_000_000)
 
