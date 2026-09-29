@@ -126,7 +126,7 @@ dashboard. See `Sources/DashiCore`.
 Dashi talks **only to the AI providers' own APIs**, directly from your Mac — **no telemetry, no
 analytics, no "phone home."** Your usage figures and credentials never leave your machine. The
 gauges reuse the OAuth tokens Claude Code (Keychain) and the Codex CLI (`~/.codex/auth.json`)
-already store locally — **read-only, never copied, written back, or logged**; note this is a
+already store locally — **read-only, never copied to disk, written back, or logged**; note this is a
 **personal-use, ToS grey-area** feature. Full details, the threat model, and how to revoke access
 are in **[SECURITY.md](SECURITY.md)**.
 

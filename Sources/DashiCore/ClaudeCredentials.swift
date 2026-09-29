@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os
 
 /// The OAuth access token Claude Code stores locally. The token itself is wrapped in ``Secret`` so
 /// it never prints; `expiresAt` lets callers detect a stale token before using it.
@@ -87,6 +88,44 @@ public struct ClaudeCredentialsReader: ClaudeCredentialsReading {
             return Date(timeIntervalSince1970: seconds)
         }
         return ClaudeOAuthToken(accessToken: Secret(oauth.accessToken), expiresAt: expiry)
+    }
+}
+
+/// Holds the last token a wrapped reader returned, so repeated fetches reach the Keychain only
+/// once the cached token expires or a caller invalidates it.
+final class ClaudeTokenCache: Sendable {
+    private let reader: any ClaudeCredentialsReading
+    private let now: @Sendable () -> Date
+    private let cached = OSAllocatedUnfairLock<ClaudeOAuthToken?>(initialState: nil)
+
+    init(reader: any ClaudeCredentialsReading, now: @escaping @Sendable () -> Date) {
+        self.reader = reader
+        self.now = now
+    }
+
+    /// Returns the unexpired cached token, or reads and caches a fresh one, reporting which of the
+    /// two it is; a read that throws or yields no token leaves the cache empty.
+    func token() throws -> (token: ClaudeOAuthToken, isCached: Bool)? {
+        if let unexpired { return (unexpired, true) }
+        guard let fresh = try reader.currentToken() else { return nil }
+        cached.withLock { $0 = fresh }
+        return (fresh, false)
+    }
+
+    /// Drops the cached token, so the next read goes to the wrapped reader.
+    func invalidate() {
+        cached.withLock { $0 = nil }
+    }
+
+    /// The cached token while it is still valid, discarding it once it has expired.
+    private var unexpired: ClaudeOAuthToken? {
+        cached.withLock { state in
+            guard let token = state, !token.isExpired(now: now()) else {
+                state = nil
+                return nil
+            }
+            return token
+        }
     }
 }
 
