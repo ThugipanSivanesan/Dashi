@@ -62,10 +62,13 @@ public struct ClaudeSubscriptionProvider: LimitProvider {
         return try limits(from: retryData, response: retryResponse)
     }
 
-    /// Reads the token through the cache, reporting a reader failure as a failed request.
+    /// Reads the token through the cache, reporting a refused Keychain prompt as
+    /// ``LimitError/keychainDenied`` and any other reader failure as a failed request.
     private func readToken() throws -> (token: ClaudeOAuthToken, isCached: Bool)? {
         do {
             return try cache.token()
+        } catch let error as CredentialsError where error.isAccessDenied {
+            throw LimitError.keychainDenied
         } catch {
             throw LimitError.requestFailed("credentials: \(error)")
         }

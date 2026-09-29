@@ -71,6 +71,8 @@ public enum LimitError: Error, Equatable {
     /// The usage endpoint returned HTTP 429. `retryAfter` is the server's `Retry-After` value in
     /// seconds when it provided one, so the caller can wait at least that long before retrying.
     case rateLimited(retryAfter: TimeInterval?)
+    /// The user refused the Keychain prompt.
+    case keychainDenied
     case requestFailed(String)
 }
 

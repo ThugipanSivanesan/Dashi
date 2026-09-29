@@ -48,7 +48,7 @@ private struct ProviderMenuBarChip: View {
                 .map { "\(Int($0.utilization.rounded()))%" } ?? "–"
         case .loading:
             "…"
-        case .notSignedIn, .needsReauth, .needsConsent, .failed:
+        case .notSignedIn, .needsReauth, .needsConsent, .keychainDenied, .failed:
             "–"
         }
     }
@@ -277,6 +277,13 @@ private struct LimitSection: View {
             message(notSignedIn, systemImage: "person.crop.circle.badge.questionmark")
         case .needsReauth:
             message(needsReauth, systemImage: "exclamationmark.triangle")
+        case .keychainDenied:
+            VStack(alignment: .leading, spacing: 8) {
+                message("Dashi needs keychain access to read your usage.", systemImage: "lock")
+                Button("Try again") {
+                    Task { await viewModel.load(reason: .manual) }
+                }
+            }
         case .failed(let text):
             message(text, systemImage: "exclamationmark.triangle")
         }
